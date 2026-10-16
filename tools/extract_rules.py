@@ -122,6 +122,49 @@ PROFICIENCY_DEGREES = [
     {"value": 4, "name": "Mastery 3", "rank": "Sannin / Kage", "masteryBonus": 6},
 ]
 
+ALL_SKILL_IDS = [
+    "acrobatics", "animal-handling", "athletics", "chakra-control", "crafting", "deception",
+    "history", "illusions", "insight", "intimidation", "investigation", "martial-arts",
+    "medicine", "nature", "ninshou", "perception", "performance", "persuasion",
+    "sleight-of-hand", "stealth", "survival",
+]
+
+
+def fixed_skills(source: str, *skills: str) -> dict:
+    return {"id": f"{source}-fixed", "label": "Granted skills", "count": len(skills), "options": list(skills), "fixed": True}
+
+
+def choose_skills(source: str, count: int, skills: list[str], label: str | None = None) -> dict:
+    return {"id": f"{source}-choice", "label": label or f"Choose {count} skills", "count": count, "options": skills, "fixed": False}
+
+
+CLASS_PROFICIENCY_GRANTS = {
+    "Genjutsu-Specialist": [fixed_skills("class-genjutsu", "illusions"), choose_skills("class-genjutsu", 3, ["chakra-control", "deception", "history", "insight", "intimidation", "investigation", "perception", "persuasion", "stealth"])],
+    "Hunter-Nin": [fixed_skills("class-hunter", "stealth"), choose_skills("class-hunter", 3, ALL_SKILL_IDS, "Choose three other skills")],
+    "Intelligence-Operative": [fixed_skills("class-intelligence", "investigation"), choose_skills("class-intelligence", 3, ["chakra-control", "crafting", "ninshou", "persuasion", "illusions", "insight", "intimidation", "history", "perception", "martial-arts"])],
+    "Medical-Nin": [fixed_skills("class-medical", "medicine", "chakra-control"), choose_skills("class-medical", 2, ["history", "insight", "perception", "illusions", "ninshou"])],
+    "Ninjutsu-Specialist": [fixed_skills("class-ninjutsu", "ninshou"), choose_skills("class-ninjutsu", 4, ["martial-arts", "insight", "investigation", "history", "stealth", "perception", "chakra-control"])],
+    "Scout-Nin": [choose_skills("class-scout", 3, ["ninshou", "illusions", "martial-arts", "insight", "investigation", "nature", "acrobatics", "athletics", "history", "stealth", "perception", "medicine", "chakra-control"])],
+    "Taijutsu-Specialist": [fixed_skills("class-taijutsu", "martial-arts"), choose_skills("class-taijutsu", 2, ["ninshou", "illusions", "insight", "investigation", "nature", "acrobatics", "athletics", "history", "stealth", "perception", "medicine", "chakra-control"])],
+    "Weapon-Specialist": [fixed_skills("class-weapon", "martial-arts"), choose_skills("class-weapon", 3, ["acrobatics", "athletics", "crafting", "history", "intimidation", "perception", "sleight-of-hand", "stealth", "survival"])],
+    "Puppet-Master": [fixed_skills("class-puppet", "crafting"), choose_skills("class-puppet", 3, ["chakra-control", "deception", "history", "insight", "intimidation", "investigation", "ninshou", "perception", "nature", "sleight-of-hand", "stealth"])],
+    "Cooking-Nin": [fixed_skills("class-cooking", "survival"), choose_skills("class-cooking", 3, ["athletics", "crafting", "deception", "history", "insight", "intimidation", "investigation", "medicine", "nature", "perception", "sleight-of-hand"])],
+    "Science-Nin": [choose_skills("class-science", 4, ["ninshou", "insight", "investigation", "nature", "crafting", "athletics", "history", "stealth", "perception", "medicine", "chakra-control"])],
+}
+
+BACKGROUND_PROFICIENCY_GRANTS = {
+    "Entertainer": {"skills": [fixed_skills("background-entertainer", "acrobatics", "performance")], "toolkits": ["Disguise Kit"]},
+    "Genius": {"skills": [choose_skills("background-genius", 2, ["ninshou", "martial-arts", "investigation", "history"])], "toolkitChoice": True},
+    "Hard Worker": {"skills": [fixed_skills("background-hard-worker", "acrobatics", "athletics")], "toolkits": ["Weaponsmith Kit"]},
+    "Hermit": {"skills": [fixed_skills("background-hermit", "animal-handling", "history")], "toolkitOptions": ["Poison Kit", "Medicine Kit"]},
+    "Leader": {"skills": [fixed_skills("background-leader", "history"), choose_skills("background-leader", 1, ["deception", "persuasion"])], "toolkits": ["Forgery Kit"]},
+    "Noble": {"skills": [fixed_skills("background-noble", "persuasion", "insight")], "toolkits": ["Security Kit"]},
+    "Student": {"skills": [fixed_skills("background-student", "acrobatics"), choose_skills("background-student", 1, ["ninshou", "investigation", "illusions", "medicine"])], "toolkits": ["Forensics Kit"]},
+    "Traveler": {"skills": [fixed_skills("background-traveler", "insight", "perception")], "toolkits": ["Poison Kit"]},
+    "Trouble Maker": {"skills": [fixed_skills("background-trouble-maker", "deception", "sleight-of-hand")], "toolkits": ["Forgery Kit"]},
+    "Urchin": {"skills": [fixed_skills("background-urchin", "sleight-of-hand", "stealth")], "toolkits": ["Disguise Kit"]},
+}
+
 
 def proficiency_action(name: str, degree: int, summary: str) -> dict:
     return {"name": name, "degree": degree, "summary": summary}
@@ -405,6 +448,7 @@ def extract_classes(workbook, catalog) -> list[dict]:
                 {"id": f"{row_number}-{index}", "choices": choices}
                 for index, choices in enumerate(STARTING_EQUIPMENT.get(name, []), 1)
             ],
+            "skillGrants": CLASS_PROFICIENCY_GRANTS.get(name, []),
             "featuresByLevel": features,
         })
     return classes
@@ -444,6 +488,7 @@ def extract_backgrounds(workbook, catalog) -> list[dict]:
             "id": f"background-{row_number}",
             "name": name,
             "feature": decorate_feature(feature_name, catalog) if feature_name else None,
+            "proficiencyGrants": BACKGROUND_PROFICIENCY_GRANTS.get(name),
         })
     return backgrounds
 

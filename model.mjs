@@ -40,8 +40,8 @@ export function emptyCharacter() {
   const baseAbilities = Object.fromEntries(ABILITIES.map((ability) => [ability, 10]));
   return {
     schema: "naruto5e-character",
-    schemaVersion: 6,
-    appVersion: "0.6.0",
+    schemaVersion: 7,
+    appVersion: "0.7.0",
     name: "",
     player: "",
     level: 1,
@@ -66,7 +66,7 @@ export function emptyCharacter() {
     equipment: { ryo: 100, startingChoices: {}, startingDetails: {}, items: [] },
     summons: [],
     puppets: [],
-    proficiencies: { skills: {}, toolkits: [] },
+    proficiencies: { skills: {}, toolkits: [], grantChoices: {} },
     featureChoices: {},
     levelChoices: {},
     createdAt: new Date().toISOString(),
@@ -140,6 +140,7 @@ export function sanitizeCharacter(input) {
         degree: Math.min(4, Math.max(0, Number(entry.degree) || 0)),
         source: String(entry.source || ""),
       })) : [],
+      grantChoices: input.proficiencies?.grantChoices && typeof input.proficiencies.grantChoices === "object" ? Object.fromEntries(Object.entries(input.proficiencies.grantChoices).map(([id, values]) => [id, Array.isArray(values) ? values.filter(Boolean).map(String) : []])) : {},
     },
     featureChoices: input.featureChoices && typeof input.featureChoices === "object" ? input.featureChoices : {},
     levelChoices: input.levelChoices && typeof input.levelChoices === "object" ? input.levelChoices : {},
@@ -253,6 +254,59 @@ export function syncAbilityScores(character) {
   return character;
 }
 
+export function activeProficiencyGrants(character, rules) {
+  const selectedClass = rules.classes?.find((entry) => entry.id === character.classId);
+  const selectedBackground = rules.backgrounds?.find((entry) => entry.id === character.backgroundId);
+  const sources = [
+    { key: "class", label: selectedClass ? `Class: ${selectedClass.name}` : "Class", groups: selectedClass?.skillGrants || [] },
+    { key: "background", label: selectedBackground ? `Background: ${selectedBackground.name}` : "Background", groups: selectedBackground?.proficiencyGrants?.skills || [] },
+  ];
+  const bySkill = {};
+  for (const source of sources) for (const group of source.groups) {
+    const chosen = group.fixed ? group.options : (character.proficiencies?.grantChoices?.[group.id] || []).slice(0, group.count);
+    for (const originalSkillId of chosen) {
+      const replacementKey = `overlap-${source.key}-${group.id}-${originalSkillId}`;
+      const skillId = bySkill[originalSkillId]?.length ? character.proficiencies?.grantChoices?.[replacementKey]?.[0] : originalSkillId;
+      if (skillId) (bySkill[skillId] ||= []).push(source.label);
+    }
+  }
+  return bySkill;
+}
+
+export function proficiencyGrantOverlaps(character, rules) {
+  const selectedClass = rules.classes?.find((entry) => entry.id === character.classId);
+  const selectedBackground = rules.backgrounds?.find((entry) => entry.id === character.backgroundId);
+  const sources = [
+    { key: "class", label: selectedClass?.name || "Class", groups: selectedClass?.skillGrants || [] },
+    { key: "background", label: selectedBackground?.name || "Background", groups: selectedBackground?.proficiencyGrants?.skills || [] },
+  ];
+  const seen = new Set();
+  const overlaps = [];
+  for (const source of sources) for (const group of source.groups) {
+    const chosen = group.fixed ? group.options : (character.proficiencies?.grantChoices?.[group.id] || []).slice(0, group.count);
+    for (const skillId of chosen) {
+      if (seen.has(skillId)) overlaps.push({ key: `overlap-${source.key}-${group.id}-${skillId}`, skillId, source: source.label });
+      else seen.add(skillId);
+    }
+  }
+  return overlaps;
+}
+
+export function effectiveSkillDegree(character, rules, skillId) {
+  const manual = Number(character.proficiencies?.skills?.[skillId]?.degree) || 0;
+  return Math.max(manual, activeProficiencyGrants(character, rules)[skillId]?.length ? 1 : 0);
+}
+
+export function grantedToolkits(character, rules) {
+  const background = rules.backgrounds?.find((entry) => entry.id === character.backgroundId);
+  const grants = background?.proficiencyGrants;
+  if (!grants) return [];
+  const result = (grants.toolkits || []).map((name) => ({ name, source: `Background: ${background.name}` }));
+  const selected = character.proficiencies?.grantChoices?.[`background-toolkit-${background.id}`] || [];
+  for (const name of selected) if (name) result.push({ name, source: `Background: ${background.name}` });
+  return result;
+}
+
 export function validateCharacter(character, rules) {
   const problems = [];
   if (!character.name.trim()) problems.push("Give the character a name.");
@@ -262,11 +316,24 @@ export function validateCharacter(character, rules) {
   const selectedClass = rules.classes.find((entry) => entry.id === character.classId);
   const masteryCap = masteryRankCap(character.level);
   for (const skill of rules.proficiencies?.skills || []) {
-    const degree = Number(character.proficiencies?.skills?.[skill.id]?.degree) || 0;
+    const degree = effectiveSkillDegree(character, rules, skill.id);
     if (Math.max(0, degree - 1) > masteryCap) problems.push(`${skill.name} exceeds the Mastery ${masteryCap} limit for level ${character.level}.`);
   }
   for (const toolkit of character.proficiencies?.toolkits || []) {
     if (Math.max(0, Number(toolkit.degree) - 1) > masteryCap) problems.push(`${toolkit.name || "A toolkit"} exceeds the Mastery ${masteryCap} limit for level ${character.level}.`);
+  }
+  const grantGroups = [...(selectedClass?.skillGrants || []), ...(rules.backgrounds.find((entry) => entry.id === character.backgroundId)?.proficiencyGrants?.skills || [])];
+  for (const group of grantGroups.filter((entry) => !entry.fixed)) {
+    const chosen = character.proficiencies?.grantChoices?.[group.id] || [];
+    if (chosen.length < group.count || new Set(chosen).size < group.count) problems.push(`Complete ${group.label.toLowerCase()} for class/background proficiencies.`);
+  }
+  const background = rules.backgrounds.find((entry) => entry.id === character.backgroundId);
+  const toolkitGrant = background?.proficiencyGrants;
+  if ((toolkitGrant?.toolkitOptions || toolkitGrant?.toolkitChoice) && !(character.proficiencies?.grantChoices?.[`background-toolkit-${background.id}`]?.[0] || "").trim()) problems.push(`Choose the toolkit granted by ${background.name}.`);
+  for (const overlap of proficiencyGrantOverlaps(character, rules)) {
+    const replacement = character.proficiencies?.grantChoices?.[overlap.key]?.[0];
+    if (!replacement) problems.push(`Choose a replacement for the duplicate ${overlap.skillId} proficiency from ${overlap.source}.`);
+    else if (replacement === overlap.skillId || (activeProficiencyGrants(character, rules)[replacement]?.length || 0) > 1) problems.push(`The replacement proficiency for ${overlap.source} must be a different, ungranted skill.`);
   }
   if (character.subclassId) {
     const subclass = rules.subclasses.find((entry) => entry.id === character.subclassId);

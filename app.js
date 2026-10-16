@@ -1,4 +1,4 @@
-import { ABILITIES, CLASS_ASI_LEVELS, PUPPET_UPGRADE_TIERS, SUMMON_RANK_ORDER, abilityBreakdown, abilityModifier, emptyCharacter, levelTimeline, masteryRankCap, proficiencyBonus, proficiencyDegreeBonus, puppetAbilityPointPool, puppetAllowedCount, puppetBaseAbilities, puppetDerivedStats, puppetUpgradeCapacity, sanitizeCharacter, startingWeaponRequirements, summonDerivedStats, syncAbilityScores, validateCharacter } from "./model.mjs";
+import { ABILITIES, CLASS_ASI_LEVELS, PUPPET_UPGRADE_TIERS, SUMMON_RANK_ORDER, abilityBreakdown, abilityModifier, activeProficiencyGrants, effectiveSkillDegree, emptyCharacter, grantedToolkits, levelTimeline, masteryRankCap, proficiencyBonus, proficiencyDegreeBonus, proficiencyGrantOverlaps, puppetAbilityPointPool, puppetAllowedCount, puppetBaseAbilities, puppetDerivedStats, puppetUpgradeCapacity, sanitizeCharacter, startingWeaponRequirements, summonDerivedStats, syncAbilityScores, validateCharacter } from "./model.mjs";
 
 const STORAGE_KEY = "shinobi-forge-character-v1";
 const state = { rules: null, character: emptyCharacter(), activeStep: "identity" };
@@ -189,18 +189,20 @@ function renderAll() {
   renderReview();
 }
 
-function proficiencyDegreeOptions(selectedDegree) {
-  return state.rules.proficiencies.degrees.map((degree) => `<option value="${degree.value}"${Number(selectedDegree) === degree.value ? " selected" : ""}>${escapeHtml(degree.name)} · ${escapeHtml(degree.rank)}${degree.masteryBonus ? ` (+${degree.masteryBonus} mastery)` : ""}</option>`).join("");
+function proficiencyDegreeOptions(selectedDegree, minimumDegree = 0) {
+  return state.rules.proficiencies.degrees.map((degree) => `<option value="${degree.value}"${Number(selectedDegree) === degree.value ? " selected" : ""}${degree.value < minimumDegree ? " disabled" : ""}>${escapeHtml(degree.name)} · ${escapeHtml(degree.rank)}${degree.masteryBonus ? ` (+${degree.masteryBonus} mastery)` : ""}</option>`).join("");
 }
 
 function renderProficiencies() {
   const rules = state.rules.proficiencies;
   if (!rules) return;
   const skills = state.character.proficiencies.skills;
+  const automaticSources = activeProficiencyGrants(state.character, state.rules);
   const cap = masteryRankCap(state.character.level);
-  const trainedCount = rules.skills.filter((skill) => Number(skills[skill.id]?.degree) >= 1).length;
-  const masteredCount = rules.skills.filter((skill) => Number(skills[skill.id]?.degree) >= 2).length;
+  const trainedCount = rules.skills.filter((skill) => effectiveSkillDegree(state.character, state.rules, skill.id) >= 1).length;
+  const masteredCount = rules.skills.filter((skill) => effectiveSkillDegree(state.character, state.rules, skill.id) >= 2).length;
   $("#proficiency-summary").innerHTML = `<div><span>Proficiency bonus</span><strong>${signed(proficiencyBonus(state.character.level))}</strong></div><div><span>Current mastery limit</span><strong>Mastery ${cap}</strong><small>${cap === 1 ? "Chunin" : cap === 2 ? "Jonin" : "Sannin / Kage"}</small></div><div><span>Skill training</span><strong>${trainedCount} proficient · ${masteredCount} mastered</strong></div>`;
+  renderProficiencyGrantGuide();
   const lockedButton = $("#proficiency-show-locked");
   lockedButton.textContent = showLockedProficiencyActions ? "Hide locked actions" : "Show locked actions";
   lockedButton.setAttribute("aria-pressed", String(showLockedProficiencyActions));
@@ -208,7 +210,7 @@ function renderProficiencies() {
   const filtered = rules.skills.filter((skill) => !query || `${skill.name} ${skill.ability} ${skill.actions.map((action) => `${action.name} ${action.summary}`).join(" ")}`.toLowerCase().includes(query));
   $("#proficiency-grid").innerHTML = filtered.map((skill) => {
     const entry = skills[skill.id] || { degree: 0, source: "" };
-    const degree = Number(entry.degree) || 0;
+    const degree = effectiveSkillDegree(state.character, state.rules, skill.id);
     const totalBonus = abilityModifier(state.character.abilities[skill.ability]) + proficiencyDegreeBonus(state.character.level, degree);
     const actions = skill.actions.filter((action) => showLockedProficiencyActions || action.degree <= degree);
     const actionMarkup = actions.length ? actions.map((action) => {
@@ -217,7 +219,8 @@ function renderProficiencies() {
       return `<li class="proficiency-action${locked ? " locked" : ""}"><div><strong>${escapeHtml(action.name)}</strong><span class="proficiency-tier">${escapeHtml(actionDegree?.name || "Not Proficient")}</span>${locked ? '<span class="locked-label">Locked</span>' : ""}</div><p>${escapeHtml(action.summary)}</p></li>`;
     }).join("") : `<li class="proficiency-empty">${skill.actions.length ? "No currently available special actions." : "The core rules list no dedicated Skill-Based Actions for this skill."}</li>`;
     const overCap = Math.max(0, degree - 1) > cap;
-    return `<article class="proficiency-card${overCap ? " over-cap" : ""}"><header><div><h4>${escapeHtml(skill.name)}</h4><span>${escapeHtml(abilityLabel(skill.ability))}</span></div><div class="skill-numbers"><strong>${signed(totalBonus)}</strong><small>Passive ${10 + totalBonus}</small></div></header><div class="proficiency-controls"><label>Training degree<select data-skill-degree="${skill.id}">${proficiencyDegreeOptions(degree)}</select></label><label>Source<input data-skill-source="${skill.id}" value="${escapeHtml(entry.source)}" placeholder="Class, background, feat…"></label></div>${overCap ? `<p class="cap-warning">Above the Mastery ${cap} limit for level ${state.character.level}.</p>` : ""}<ul class="proficiency-actions">${actionMarkup}</ul></article>`;
+    const sourceTags = (automaticSources[skill.id] || []).map((source) => `<span class="grant-source-tag">${escapeHtml(source)}</span>`).join("");
+    return `<article class="proficiency-card${overCap ? " over-cap" : ""}"><header><div><h4>${escapeHtml(skill.name)}</h4><span>${escapeHtml(abilityLabel(skill.ability))}</span></div><div class="skill-numbers"><strong>${signed(totalBonus)}</strong><small>Passive ${10 + totalBonus}</small></div></header>${sourceTags ? `<div class="grant-source-list">${sourceTags}</div>` : ""}<div class="proficiency-controls"><label>Training degree<select data-skill-degree="${skill.id}">${proficiencyDegreeOptions(degree, sourceTags ? 1 : 0)}</select></label><label>Additional source<input data-skill-source="${skill.id}" value="${escapeHtml(entry.source)}" placeholder="Feat, training, item…"></label></div>${overCap ? `<p class="cap-warning">Above the Mastery ${cap} limit for level ${state.character.level}.</p>` : ""}<ul class="proficiency-actions">${actionMarkup}</ul></article>`;
   }).join("") || '<p class="muted-copy">No skills or actions match that search.</p>';
   $$('[data-skill-degree]').forEach((control) => control.addEventListener("change", () => {
     const current = skills[control.dataset.skillDegree] || { source: "" };
@@ -232,13 +235,52 @@ function renderProficiencies() {
   renderToolkits();
 }
 
+function renderProficiencyGrantGuide() {
+  const cls = find(state.rules.classes, state.character.classId);
+  const background = find(state.rules.backgrounds, state.character.backgroundId);
+  const skillMap = new Map(state.rules.proficiencies.skills.map((skill) => [skill.id, skill.name]));
+  const choices = state.character.proficiencies.grantChoices;
+  const renderGroups = (groups = []) => groups.map((group) => {
+    if (group.fixed) return `<div class="grant-row"><span>${escapeHtml(group.label)}</span><div class="grant-pills">${group.options.map((id) => `<strong>${escapeHtml(skillMap.get(id) || id)}</strong>`).join("")}</div></div>`;
+    const selected = choices[group.id] || [];
+    const selectors = Array.from({ length: group.count }, (_, index) => `<label>Choice ${index + 1}<select data-grant-choice="${group.id}:${index}"><option value="">Choose skill</option>${group.options.map((id) => `<option value="${id}"${selected[index] === id ? " selected" : ""}${selected.includes(id) && selected[index] !== id ? " disabled" : ""}>${escapeHtml(skillMap.get(id) || id)}</option>`).join("")}</select></label>`).join("");
+    return `<div class="grant-row"><span>${escapeHtml(group.label)}</span><div class="grant-selectors">${selectors}</div></div>`;
+  }).join("");
+  const sourceCard = (kind, source, groups, supported) => `<section class="grant-card"><header><span>${kind}</span><strong>${escapeHtml(source?.name || `Choose a ${kind.toLowerCase()}`)}</strong></header>${source ? (supported ? renderGroups(groups) : `<p class="grant-unavailable">This source is listed in the sheet, but its proficiency text is not structured yet. Record its grants manually below.</p>`) : `<p class="grant-unavailable">Select a ${kind.toLowerCase()} to see its skill grants.</p>`}</section>`;
+  const bgGrants = background?.proficiencyGrants;
+  let toolkitMarkup = "";
+  if (bgGrants?.toolkits?.length) toolkitMarkup = `<div class="grant-row"><span>Granted toolkit</span><div class="grant-pills">${bgGrants.toolkits.map((name) => `<strong>${escapeHtml(name)}</strong>`).join("")}</div></div>`;
+  if (bgGrants?.toolkitOptions) {
+    const key = `background-toolkit-${background.id}`;
+    toolkitMarkup = `<div class="grant-row"><span>Choose toolkit</span><div class="grant-selectors"><label>Background toolkit<select data-grant-toolkit="${key}"><option value="">Choose toolkit</option>${bgGrants.toolkitOptions.map((name) => `<option${choices[key]?.[0] === name ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label></div></div>`;
+  } else if (bgGrants?.toolkitChoice) {
+    const key = `background-toolkit-${background.id}`;
+    toolkitMarkup = `<div class="grant-row"><span>Toolkit of your choice</span><div class="grant-selectors"><label>Background toolkit<input data-grant-toolkit="${key}" value="${escapeHtml(choices[key]?.[0] || "")}" placeholder="Enter toolkit name"></label></div></div>`;
+  }
+  const overlaps = proficiencyGrantOverlaps(state.character, state.rules);
+  const grantedIds = new Set(Object.keys(activeProficiencyGrants(state.character, state.rules)));
+  const overlapMarkup = overlaps.map((overlap) => `<div class="overlap-choice"><p><strong>${escapeHtml(skillMap.get(overlap.skillId) || overlap.skillId)}</strong> is granted twice. Choose a different skill for ${escapeHtml(overlap.source)}.</p><select data-overlap-choice="${overlap.key}"><option value="">Choose replacement skill</option>${state.rules.proficiencies.skills.map((skill) => `<option value="${skill.id}"${choices[overlap.key]?.[0] === skill.id ? " selected" : ""}${(skill.id === overlap.skillId || (grantedIds.has(skill.id) && choices[overlap.key]?.[0] !== skill.id)) ? " disabled" : ""}>${escapeHtml(skill.name)}</option>`).join("")}</select></div>`).join("");
+  $("#proficiency-grant-guide").innerHTML = `<div class="grant-guide-heading"><div><span>Starting proficiency guide</span><strong>Class and background training</strong></div><p>Fixed skills apply automatically. Complete each open choice before exporting.</p></div><div class="grant-card-grid">${sourceCard("Class", cls, cls?.skillGrants || [], Boolean(cls?.skillGrants?.length))}${sourceCard("Background", background, bgGrants?.skills || [], Boolean(bgGrants))}</div>${bgGrants ? `<section class="grant-card compact"><header><span>Background</span><strong>Toolkit training</strong></header>${toolkitMarkup || '<p class="grant-unavailable">This background does not list a toolkit grant.</p>'}</section>` : ""}${overlapMarkup ? `<div class="overlap-panel"><strong>Duplicate proficiency replacement</strong>${overlapMarkup}</div>` : ""}`;
+  $$('[data-grant-choice]').forEach((control) => control.addEventListener("change", () => {
+    const [groupId, indexText] = control.dataset.grantChoice.split(":");
+    const values = choices[groupId] || [];
+    values[Number(indexText)] = control.value;
+    choices[groupId] = values;
+    saveAndRender();
+  }));
+  $$('[data-grant-toolkit]').forEach((control) => control.addEventListener("change", () => { choices[control.dataset.grantToolkit] = [control.value]; saveAndRender(); }));
+  $$('[data-overlap-choice]').forEach((control) => control.addEventListener("change", () => { choices[control.dataset.overlapChoice] = [control.value]; saveAndRender(); }));
+}
+
 function renderToolkits() {
   const toolkits = state.character.proficiencies.toolkits;
-  $("#toolkit-list").innerHTML = toolkits.length ? toolkits.map((toolkit, index) => {
+  const automatic = grantedToolkits(state.character, state.rules).map((toolkit) => `<div class="toolkit-row automatic"><div><span>Toolkit</span><strong>${escapeHtml(toolkit.name)}</strong></div><div><span>Training degree</span><strong>Proficient</strong></div><div><span>Source</span><strong>${escapeHtml(toolkit.source)}</strong></div><div class="toolkit-bonus"><span>Training bonus</span><strong>${signed(proficiencyDegreeBonus(state.character.level, 1))}</strong></div></div>`).join("");
+  const manual = toolkits.length ? toolkits.map((toolkit, index) => {
     const degreeBonus = proficiencyDegreeBonus(state.character.level, toolkit.degree);
     const overCap = Math.max(0, Number(toolkit.degree) - 1) > masteryRankCap(state.character.level);
     return `<div class="toolkit-row${overCap ? " over-cap" : ""}"><label>Toolkit name<input data-toolkit-name="${index}" value="${escapeHtml(toolkit.name)}" placeholder="e.g. Poison Kit"></label><label>Training degree<select data-toolkit-degree="${index}">${proficiencyDegreeOptions(toolkit.degree)}</select></label><label>Source<input data-toolkit-source="${index}" value="${escapeHtml(toolkit.source)}" placeholder="Class, background, feat…"></label><div class="toolkit-bonus"><span>Training bonus</span><strong>${signed(degreeBonus)}</strong></div><button type="button" class="icon-button" data-remove-toolkit="${index}" aria-label="Remove toolkit">×</button></div>`;
-  }).join("") : '<p class="muted-copy">No toolkit proficiencies recorded.</p>';
+  }).join("") : "";
+  $("#toolkit-list").innerHTML = automatic + manual || '<p class="muted-copy">No toolkit proficiencies recorded.</p>';
   $$('[data-toolkit-name]').forEach((control) => control.addEventListener("change", () => { toolkits[Number(control.dataset.toolkitName)].name = control.value; saveAndRender(); }));
   $$('[data-toolkit-degree]').forEach((control) => control.addEventListener("change", () => { toolkits[Number(control.dataset.toolkitDegree)].degree = Number(control.value) || 0; saveAndRender(); }));
   $$('[data-toolkit-source]').forEach((control) => control.addEventListener("change", () => { toolkits[Number(control.dataset.toolkitSource)].source = control.value; saveAndRender(); }));
@@ -568,9 +610,10 @@ function renderReview() {
   $("#validation").className = `validation ${problems.length ? "problem" : "ok"}`;
   $("#validation").innerHTML = problems.length ? `<strong>${problems.length} item${problems.length === 1 ? "" : "s"} to review</strong><ul>${problems.map((problem) => `<li>${escapeHtml(problem)}</li>`).join("")}</ul>` : "No structural problems found. The exported JSON is ready to share.";
   const cls = find(state.rules.classes, state.character.classId); const clan = find(state.rules.clans, state.character.clanId); const subclass = find(state.rules.subclasses, state.character.subclassId); const background = find(state.rules.backgrounds, state.character.backgroundId);
-  const trainedSkills = Object.values(state.character.proficiencies.skills).filter((entry) => Number(entry.degree) >= 1).length;
-  const masteredSkills = Object.values(state.character.proficiencies.skills).filter((entry) => Number(entry.degree) >= 2).length;
-  $("#review-sheet").innerHTML = `<div class="review-title"><div><h4>${escapeHtml(state.character.name || "Unnamed shinobi")}</h4><p>${escapeHtml([clan?.name, cls?.name, subclass?.name].filter(Boolean).join(" · ") || "Build incomplete")}</p></div><strong>Level ${state.character.level}</strong></div><div class="review-grid">${ABILITIES.map((ability) => `<div class="review-stat"><span>${ability.slice(0,3)}</span><strong>${state.character.abilities[ability]} (${signed(abilityModifier(state.character.abilities[ability]))})</strong></div>`).join("")}<div class="review-stat"><span>Background</span><strong>${escapeHtml(background?.name || "—")}</strong></div><div class="review-stat"><span>Skills</span><strong>${trainedSkills} proficient · ${masteredSkills} mastered</strong></div><div class="review-stat"><span>Toolkits</span><strong>${state.character.proficiencies.toolkits.length}</strong></div><div class="review-stat"><span>Jutsu</span><strong>${state.character.jutsu.length}</strong></div><div class="review-stat"><span>Equipment</span><strong>${state.character.equipment.items.length + Object.values(state.character.equipment.startingChoices).filter(Boolean).length}</strong></div><div class="review-stat"><span>Summons</span><strong>${state.character.summons.length}</strong></div><div class="review-stat"><span>Puppets</span><strong>${state.character.puppets.length}</strong></div></div>`;
+  const trainedSkills = state.rules.proficiencies.skills.filter((skill) => effectiveSkillDegree(state.character, state.rules, skill.id) >= 1).length;
+  const masteredSkills = state.rules.proficiencies.skills.filter((skill) => effectiveSkillDegree(state.character, state.rules, skill.id) >= 2).length;
+  const toolkitCount = state.character.proficiencies.toolkits.length + grantedToolkits(state.character, state.rules).length;
+  $("#review-sheet").innerHTML = `<div class="review-title"><div><h4>${escapeHtml(state.character.name || "Unnamed shinobi")}</h4><p>${escapeHtml([clan?.name, cls?.name, subclass?.name].filter(Boolean).join(" · ") || "Build incomplete")}</p></div><strong>Level ${state.character.level}</strong></div><div class="review-grid">${ABILITIES.map((ability) => `<div class="review-stat"><span>${ability.slice(0,3)}</span><strong>${state.character.abilities[ability]} (${signed(abilityModifier(state.character.abilities[ability]))})</strong></div>`).join("")}<div class="review-stat"><span>Background</span><strong>${escapeHtml(background?.name || "—")}</strong></div><div class="review-stat"><span>Skills</span><strong>${trainedSkills} proficient · ${masteredSkills} mastered</strong></div><div class="review-stat"><span>Toolkits</span><strong>${toolkitCount}</strong></div><div class="review-stat"><span>Jutsu</span><strong>${state.character.jutsu.length}</strong></div><div class="review-stat"><span>Equipment</span><strong>${state.character.equipment.items.length + Object.values(state.character.equipment.startingChoices).filter(Boolean).length}</strong></div><div class="review-stat"><span>Summons</span><strong>${state.character.summons.length}</strong></div><div class="review-stat"><span>Puppets</span><strong>${state.character.puppets.length}</strong></div></div>`;
 }
 
 function exportCharacter() {

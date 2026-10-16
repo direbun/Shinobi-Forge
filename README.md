@@ -15,6 +15,7 @@ Then open <http://localhost:4173>.
 ## Current coverage
 
 - Identity, level, clan, class, subclass, background, and ability scores
+- Guided class/background skill proficiency grants, duplicate replacements, toolkit grants, and automatic source tracking
 - Itemized ability math for clan +2/+1, background +1 or feat, class-level increases, and exceptional adjustments
 - Searchable jutsu catalogue with the level learned
 - Visible jutsu classifications, elemental keywords, other keywords, components, range, and casting time

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { abilityBreakdown, abilityModifier, emptyCharacter, masteryRankCap, proficiencyBonus, proficiencyDegreeBonus, puppetAbilityPointPool, puppetAllowedCount, puppetDerivedStats, puppetUpgradeCapacity, puppetUpgradeProblems, sanitizeCharacter, startingWeaponRequirements, summonDerivedStats, syncAbilityScores, validateCharacter } from "../model.mjs";
+import { abilityBreakdown, abilityModifier, effectiveSkillDegree, emptyCharacter, grantedToolkits, masteryRankCap, proficiencyBonus, proficiencyDegreeBonus, puppetAbilityPointPool, puppetAllowedCount, puppetDerivedStats, puppetUpgradeCapacity, puppetUpgradeProblems, sanitizeCharacter, startingWeaponRequirements, summonDerivedStats, syncAbilityScores, validateCharacter } from "../model.mjs";
 
 assert.equal(abilityModifier(10), 0);
 assert.equal(abilityModifier(9), -1);
@@ -25,7 +25,7 @@ assert.equal(restored.abilities.dexterity, 10);
 assert.deepEqual(restored.equipment, { ryo: 100, startingChoices: {}, startingDetails: {}, items: [] });
 assert.deepEqual(restored.summons, []);
 assert.deepEqual(restored.puppets, []);
-assert.deepEqual(restored.proficiencies, { skills: {}, toolkits: [] });
+assert.deepEqual(restored.proficiencies, { skills: {}, toolkits: [], grantChoices: {} });
 assert.deepEqual(startingWeaponRequirements("1 Simple Weapon, 2 Martial Weapons"), ["Simple", "Martial", "Martial"]);
 
 const summon = { rank: "B-Rank", roleMode: "dual", primaryRole: "Defender", secondaryRole: "Caster", statIncreases: { constitution: 2 }, hpAdjustment: 0, acAdjustment: 0 };
@@ -68,6 +68,17 @@ assert.equal(trained.proficiencies.toolkits[0].degree, 2);
 assert.equal(validateCharacter(trained, { ...rules, proficiencies: { skills: [{ id: "athletics", name: "Athletics" }] } }).filter((entry) => entry.includes("Athletics exceeds")).length, 1);
 
 const extractedRules = JSON.parse(readFileSync(new URL("../data/rules.json", import.meta.url), "utf8"));
+const guided = emptyCharacter();
+guided.classId = extractedRules.classes.find(({ name }) => name === "Medical-Nin").id;
+guided.backgroundId = extractedRules.backgrounds.find(({ name }) => name === "Hermit").id;
+assert.equal(effectiveSkillDegree(guided, extractedRules, "medicine"), 1);
+assert.equal(effectiveSkillDegree(guided, extractedRules, "chakra-control"), 1);
+assert.equal(effectiveSkillDegree(guided, extractedRules, "animal-handling"), 1);
+assert.ok(validateCharacter(guided, extractedRules).some((entry) => entry.includes("choose 2 skills")));
+guided.proficiencies.grantChoices["class-medical-choice"] = ["insight", "perception"];
+guided.proficiencies.grantChoices[`background-toolkit-${guided.backgroundId}`] = ["Medicine Kit"];
+assert.deepEqual(grantedToolkits(guided, extractedRules), [{ name: "Medicine Kit", source: "Background: Hermit" }]);
+assert.ok(!validateCharacter(guided, extractedRules).some((entry) => entry.includes("class/background proficiencies")));
 const expectedSummonAbilities = {
   Bear: [16, 10, 14, 10, 12, 10],
   Boar: [16, 10, 14, 10, 10, 12],
