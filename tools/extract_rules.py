@@ -114,6 +114,128 @@ ARMOR_PRICES = {
     "ronin armor": 1500, "samurai armor": 2500,
 }
 
+PROFICIENCY_DEGREES = [
+    {"value": 0, "name": "Not Proficient", "rank": "Untrained", "masteryBonus": 0},
+    {"value": 1, "name": "Proficient", "rank": "Genin", "masteryBonus": 0},
+    {"value": 2, "name": "Mastery 1", "rank": "Chunin", "masteryBonus": 2},
+    {"value": 3, "name": "Mastery 2", "rank": "Jonin", "masteryBonus": 4},
+    {"value": 4, "name": "Mastery 3", "rank": "Sannin / Kage", "masteryBonus": 6},
+]
+
+
+def proficiency_action(name: str, degree: int, summary: str) -> dict:
+    return {"name": name, "degree": degree, "summary": summary}
+
+
+PROFICIENCY_SKILLS = [
+    {"id": "acrobatics", "name": "Acrobatics", "ability": "dexterity", "actions": [
+        proficiency_action("Maintain Balance", 0, "Use an action and an Acrobatics check to cross unstable or difficult footing without falling prone."),
+        proficiency_action("Cat Fall", 1, "Use your reaction and an Acrobatics check to lessen the impact of a fall; the DC rises with distance."),
+        proficiency_action("Squeeze Through", 1, "Use an action and an Acrobatics check to pass through a space suited to a creature one size smaller."),
+    ]},
+    {"id": "animal-handling", "name": "Animal Handling", "ability": "wisdom", "actions": [
+        proficiency_action("Calm Animal", 0, "React before violence begins to calm a hostile beast with a check against 8 + its level."),
+        proficiency_action("Tame Animal", 1, "Attempt to tame a grappled, interacting, or badly wounded beast with a check against 12 + its level."),
+        proficiency_action("Train Animal", 2, "Spend one downtime week and pass DC 25 to teach a tamed or bonded animal one compatible Taijutsu or Bukijutsu."),
+    ]},
+    {"id": "athletics", "name": "Athletics", "ability": "strength", "actions": [
+        proficiency_action("Trip", 0, "Forfeit unarmed damage after a hit and win Athletics against Acrobatics to knock the target prone."),
+        proficiency_action("Grapple", 0, "Use an action and win a contested Athletics check to grapple; Mastery can restrain on a result 10 higher."),
+        proficiency_action("Shove", 0, "Replace an attack with a contested Athletics check to push a target; proficiency and Mastery increase distance."),
+        proficiency_action("Disarm", 1, "Replace an attack with contested Athletics to knock a held item away."),
+        proficiency_action("Grapple and Shove enhancements", 2, "Mastery can upgrade a decisive grapple to Restrained and doubles the proficiency-based shove distance."),
+    ]},
+    {"id": "chakra-control", "name": "Chakra Control", "ability": "constitution", "actions": [
+        proficiency_action("Maintain Focus", 1, "Use an action and beat your jutsu save DC to avoid concentration checks until your next turn."),
+        proficiency_action("Suppress Chakra", 1, "Spend one minute to conceal your chakra signature for ten minutes against passive and active detection."),
+        proficiency_action("Draw Reserves", 2, "Spend ten minutes and make a DC 20 check to spend Chakra Dice and regain their results as chakra."),
+    ]},
+    {"id": "crafting", "name": "Crafting", "ability": "intelligence", "actions": [
+        proficiency_action("Basic Repair", 0, "Use suitable smithing tools and ten minutes to remove equipment damage or penalties."),
+        proficiency_action("Craft Non-Chakra Item", 1, "Create equipment using the non-chakra-enhanced crafting rules."),
+        proficiency_action("Craft Armor or Weapon Seals", 1, "Create armor and weapon seals using their crafting rules."),
+        proficiency_action("Identify Seals", 1, "React to inspect sealed equipment and identify its seals against a rank-based DC."),
+        proficiency_action("Superior Crafting", 2, "Create higher-quality armor and weapons under the non-chakra item rules."),
+        proficiency_action("Enhanced Value", 2, "Increase the market value you can produce by 150 Ryo for every downtime week spent crafting."),
+    ]},
+    {"id": "deception", "name": "Deception", "ability": "charisma", "actions": [
+        proficiency_action("Create Diversion", 0, "Use an action against passive Perception to grant allies a d6 bonus to Stealth."),
+        proficiency_action("Lie", 0, "Use an action and oppose passive Insight to make creatures believe a falsehood."),
+        proficiency_action("Impersonate", 1, "Set a Deception result as the DC to see through your altered voice and mannerisms."),
+        proficiency_action("Feint", 2, "Use a bonus action and beat Insight to gain a d4 on your next melee attack."),
+    ]},
+    {"id": "history", "name": "History", "ability": "intelligence", "actions": [
+        proficiency_action("Recall Knowledge", 0, "Use an action or reaction and a History check to remember relevant facts, events, cultures, or lore."),
+    ]},
+    {"id": "illusions", "name": "Illusions", "ability": "wisdom", "actions": [
+        proficiency_action("Cast Genjutsu Scrolls - D-Rank", 0, "Cast Genjutsu from scrolls of D-Rank or lower."),
+        proficiency_action("Read the Enemy", 1, "React to Genjutsu hand seals; identify the cast and gain +2 AC or advantage on its save after a successful check."),
+        proficiency_action("Identify Genjutsu", 1, "Identify an active Genjutsu and its special ending conditions against its save DC + 5."),
+        proficiency_action("Cast Genjutsu Scrolls - B-Rank", 1, "Proficiency raises your Genjutsu scroll limit to B-Rank."),
+        proficiency_action("Cast Genjutsu Scrolls - S-Rank", 2, "At least one Mastery rank raises your Genjutsu scroll limit to S-Rank."),
+    ]},
+    {"id": "insight", "name": "Insight", "ability": "wisdom", "actions": [
+        proficiency_action("See Through Lies", 0, "React to a statement and oppose Deception to notice that it may be false."),
+        proficiency_action("Sense Motive", 1, "Use an action to assess abnormal behavior, likely intent, and possible chakra-based influence."),
+    ]},
+    {"id": "intimidation", "name": "Intimidation", "ability": "charisma", "actions": [
+        proficiency_action("Coerce", 0, "Spend one minute threatening a creature and contest its Wisdom save to force short-term compliance."),
+        proficiency_action("Demoralize", 1, "Use an action within 30 feet and beat Insight to inflict one rank of Fear."),
+        proficiency_action("Severe Demoralize", 3, "With Mastery 2, beating Demoralize by 10 or more inflicts two ranks of Fear."),
+    ]},
+    {"id": "investigation", "name": "Investigation", "ability": "intelligence", "actions": [
+        proficiency_action("Study", 0, "Spend one minute studying a subject to uncover one relevant piece of information."),
+        proficiency_action("Research", 1, "Spend ten minutes to eight hours on a deep investigation, gaining time-based bonuses to uncover important lore."),
+    ]},
+    {"id": "martial-arts", "name": "Martial Arts", "ability": "strength", "actions": [
+        proficiency_action("Read the Enemy", 1, "React to complex movements for Taijutsu or Bukijutsu; identify the cast and gain +2 AC or advantage on its save."),
+        proficiency_action("Identify Taijutsu or Bukijutsu", 1, "Identify an active physical jutsu and special ending conditions against its save DC + 5."),
+    ]},
+    {"id": "medicine", "name": "Medicine", "ability": "wisdom", "actions": [
+        proficiency_action("Administer Aid", 0, "Use an action and pass DC 15 to remove ranks of Bleeding, Bruised, or Concussed once per rest per target."),
+        proficiency_action("Treat Wounds", 1, "Spend ten minutes with a Medicine Kit to restore hit points using the target-condition healing table."),
+        proficiency_action("Critical Healing", 2, "With Mastery, beating the Treat Wounds critical-success DC unlocks its larger healing result."),
+    ]},
+    {"id": "nature", "name": "Nature", "ability": "intelligence", "actions": []},
+    {"id": "ninshou", "name": "Ninshou", "ability": "intelligence", "actions": [
+        proficiency_action("Cast Ninjutsu Scrolls - D-Rank", 0, "Cast Ninjutsu from scrolls of D-Rank or lower."),
+        proficiency_action("Read the Enemy", 1, "React to Ninjutsu hand seals; identify the cast and gain +2 AC or advantage on its save after a successful check."),
+        proficiency_action("Identify Ninjutsu", 1, "Identify an active Ninjutsu and its special ending conditions against its save DC + 5."),
+        proficiency_action("Cast Ninjutsu Scrolls - B-Rank", 1, "Proficiency raises your Ninjutsu scroll limit to B-Rank."),
+        proficiency_action("Cast Ninjutsu Scrolls - S-Rank", 2, "At least one Mastery rank raises your Ninjutsu scroll limit to S-Rank."),
+    ]},
+    {"id": "perception", "name": "Perception", "ability": "wisdom", "actions": [
+        proficiency_action("Search", 0, "Use an action and a Perception check to find something concealed or otherwise not obvious."),
+    ]},
+    {"id": "performance", "name": "Performance", "ability": "charisma", "actions": [
+        proficiency_action("Perform - Common Audience", 0, "Perform to influence later social DCs and attract commoners, artisans, or Genin."),
+        proficiency_action("Perform - Trained Audience", 1, "Proficiency lets a performance specifically attract merchants, minor nobles, or Chunin."),
+        proficiency_action("Perform - Elite Audience", 2, "Mastery lets a performance specifically attract high nobility, royalty, or Jonin."),
+    ]},
+    {"id": "persuasion", "name": "Persuasion", "ability": "charisma", "actions": [
+        proficiency_action("Gather Information", 0, "Spend two to three hours canvassing a community to learn one useful fact."),
+        proficiency_action("Make an Impression or Request", 0, "Spend at least one minute building goodwill, then check against 10 + the target's Wisdom save bonus."),
+        proficiency_action("Haggle", 1, "Contest a seller's passive Insight to alter an item's price."),
+        proficiency_action("Upsell", 2, "Check against a GM-set DC to sell an item for 50 percent more Ryo."),
+    ]},
+    {"id": "sleight-of-hand", "name": "Sleight of Hand", "ability": "dexterity", "actions": [
+        proficiency_action("Palm an Object", 0, "Hide a small unattended object against observers' Perception."),
+        proficiency_action("Steal", 0, "Take a one-handed object unnoticed against passive Perception, with penalties for concealed items."),
+        proficiency_action("Disable a Device or Trap", 1, "Use the appropriate toolkit and beat the device's Disable DC."),
+        proficiency_action("Pick a Lock", 1, "Use a Security Kit under the toolkit rules to pick a lock."),
+    ]},
+    {"id": "stealth", "name": "Stealth", "ability": "dexterity", "actions": [
+        proficiency_action("Hide", 0, "Use cover, heavy obscurement, or darkness and compare Stealth against passive Perception."),
+        proficiency_action("Sneak", 0, "Move at half speed while hidden and compare Stealth against nearby creatures' passive Perception."),
+    ]},
+    {"id": "survival", "name": "Survival", "ability": "wisdom", "actions": [
+        proficiency_action("Sense Direction", 0, "Orient yourself from natural signs; unfamiliar environments may require proficiency."),
+        proficiency_action("Cover Tracks", 1, "Travel at half speed so trackers must beat your passive Survival."),
+        proficiency_action("Track", 1, "Move at half travel speed and check against passive Survival, Stealth, or a GM-set DC."),
+        proficiency_action("Navigate Alien Environments", 3, "Mastery 2 permits navigation through alien worlds, changing dream realms, alternate realities, or other dimensions."),
+    ]},
+]
+
 SUMMON_ROLES = {
     "Striker": "This summon has Multiattack and can make two attacks with its natural or held weapons.",
     "Caster": "This summon gains additional jutsu slots equal to its rank.",
@@ -506,6 +628,15 @@ def main() -> None:
         "jutsu": extract_jutsu(workbook),
         "equipment": extract_equipment(workbook),
         "summons": extract_summons(workbook),
+        "proficiencies": {
+            "degrees": PROFICIENCY_DEGREES,
+            "skills": PROFICIENCY_SKILLS,
+            "masteryCaps": [
+                {"minLevel": 1, "maxLevel": 6, "rank": 1},
+                {"minLevel": 7, "maxLevel": 11, "rank": 2},
+                {"minLevel": 12, "maxLevel": 20, "rank": 3},
+            ],
+        },
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

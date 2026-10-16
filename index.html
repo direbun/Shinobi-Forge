@@ -27,12 +27,13 @@
           <button class="nav-step active" data-step="identity"><span>01</span>Identity</button>
           <button class="nav-step" data-step="build"><span>02</span>Build</button>
           <button class="nav-step" data-step="abilities"><span>03</span>Abilities</button>
-          <button class="nav-step" data-step="jutsu"><span>04</span>Jutsu</button>
-          <button class="nav-step" data-step="equipment"><span>05</span>Equipment</button>
-          <button class="nav-step" data-step="summons"><span>06</span>Summons</button>
-          <button class="nav-step" data-step="puppets"><span>07</span>Puppets</button>
-          <button class="nav-step" data-step="timeline"><span>08</span>Level timeline</button>
-          <button class="nav-step" data-step="review"><span>09</span>Review</button>
+          <button class="nav-step" data-step="proficiencies"><span>04</span>Proficiencies</button>
+          <button class="nav-step" data-step="jutsu"><span>05</span>Jutsu</button>
+          <button class="nav-step" data-step="equipment"><span>06</span>Equipment</button>
+          <button class="nav-step" data-step="summons"><span>07</span>Summons</button>
+          <button class="nav-step" data-step="puppets"><span>08</span>Puppets</button>
+          <button class="nav-step" data-step="timeline"><span>09</span>Level timeline</button>
+          <button class="nav-step" data-step="review"><span>10</span>Review</button>
         </nav>
         <p id="save-status" class="save-status">Loading rules…</p>
       </aside>
@@ -88,8 +89,22 @@
           <div class="stat-strip"><div><span>Proficiency bonus</span><strong id="proficiency-value">+3</strong></div><div><span>Level</span><strong id="level-value">1</strong></div><div><span>Selected jutsu</span><strong id="jutsu-count">0</strong></div></div>
         </section>
 
+        <section class="step-panel" data-panel="proficiencies">
+          <div class="panel-heading"><div><span>Step 4</span><h3>Proficiencies and mastery</h3></div><p>Track every degree of training and see the skill actions it makes available.</p></div>
+          <div id="proficiency-summary" class="proficiency-rule-banner"></div>
+          <div class="proficiency-toolbar">
+            <input id="proficiency-search" type="search" placeholder="Search skills or actions…">
+            <button id="proficiency-show-locked" type="button" class="button ghost" aria-pressed="false">Show locked actions</button>
+          </div>
+          <div id="proficiency-grid" class="proficiency-grid"></div>
+          <section class="toolkit-section">
+            <div class="source-heading"><div><strong>Toolkit proficiencies</strong><small>Record crafting, poison, disguise, or other toolkit training and its source.</small></div><button id="add-toolkit" type="button" class="button ghost">Add toolkit</button></div>
+            <div id="toolkit-list" class="toolkit-list"></div>
+          </section>
+        </section>
+
         <section class="step-panel" data-panel="jutsu">
-          <div class="panel-heading"><div><span>Step 4</span><h3>Jutsu library</h3></div><p>Search the imported catalogue, then record the level each technique was learned.</p></div>
+          <div class="panel-heading"><div><span>Step 5</span><h3>Jutsu library</h3></div><p>Search the imported catalogue, then record the level each technique was learned.</p></div>
           <div class="jutsu-toolbar"><input id="jutsu-search" type="search" placeholder="Search name or wording…"><select id="jutsu-rank"><option value="">All ranks</option></select></div>
           <div class="jutsu-filter-board">
             <div class="filter-group"><span>Discipline</span><div id="jutsu-discipline-filters" class="filter-chips"><button type="button" data-jutsu-discipline="Ninjutsu">Ninjutsu</button><button type="button" data-jutsu-discipline="Bukijutsu">Bukijutsu</button><button type="button" data-jutsu-discipline="Genjutsu">Genjutsu</button><button type="button" data-jutsu-discipline="Taijutsu">Taijutsu</button></div></div>
@@ -100,7 +115,7 @@
         </section>
 
         <section class="step-panel" data-panel="equipment">
-          <div class="panel-heading"><div><span>Step 5</span><h3>Equipment</h3></div><p>Resolve the selected class package, then add weapons, armor, tools, and custom gear.</p></div>
+          <div class="panel-heading"><div><span>Step 6</span><h3>Equipment</h3></div><p>Resolve the selected class package, then add weapons, armor, tools, and custom gear.</p></div>
           <div class="wallet-card"><div><span>Wallet</span><strong><input id="ryo-balance" type="number" min="0" step="1" aria-label="Ryo balance"> Ryo</strong></div><p>Buying a priced catalogue item deducts its cost and places it in the inventory. You can edit the balance for mission rewards, sales, and other table changes.</p></div>
           <div class="equipment-layout">
             <div><h4>Starting equipment</h4><p class="muted-copy">Changing class preserves old inventory but presents the new class package here.</p><div id="starting-equipment" class="choice-stack"></div></div>
@@ -111,7 +126,7 @@
         </section>
 
         <section class="step-panel" data-panel="summons">
-          <div class="panel-heading"><div><span>Step 6</span><h3>Summons</h3></div><p>Create a roster from the sheet’s summon tribes and keep each companion’s details with the character.</p></div>
+          <div class="panel-heading"><div><span>Step 7</span><h3>Summons</h3></div><p>Create a roster from the sheet’s summon tribes and keep each companion’s details with the character.</p></div>
           <div class="summon-creator">
             <label>Summon name<input id="summon-name" placeholder="e.g. Gamakichi"></label>
             <label>Tribe / creature type<select id="summon-tribe"></select></label>
@@ -122,7 +137,7 @@
         </section>
 
         <section class="step-panel" data-panel="puppets">
-          <div class="panel-heading"><div><span>Step 7</span><h3>Puppet workshop</h3></div><p>Build Puppet Tools using their own chassis, statistics, shared upgrade tiers, seals, weapons, and jutsu.</p></div>
+          <div class="panel-heading"><div><span>Step 8</span><h3>Puppet workshop</h3></div><p>Build Puppet Tools using their own chassis, statistics, shared upgrade tiers, seals, weapons, and jutsu.</p></div>
           <div class="puppet-rule-banner"><strong>Puppet Tool rules</strong><span>AC 13 + proficiency</span><span>HP 4 + (5 + CON modifier) × level</span><span>500 ft thread range</span></div>
           <div class="puppet-creator">
             <label>Puppet name<input id="puppet-name" placeholder="e.g. Crow"></label>
@@ -136,18 +151,18 @@
         </section>
 
         <section class="step-panel" data-panel="timeline">
-          <div class="panel-heading"><div><span>Step 8</span><h3>Level timeline</h3></div><p>Automatic features and your own decisions stay attached to the level where they happened.</p></div>
+          <div class="panel-heading"><div><span>Step 9</span><h3>Level timeline</h3></div><p>Automatic features and your own decisions stay attached to the level where they happened.</p></div>
           <div id="timeline" class="timeline"></div>
         </section>
 
         <section class="step-panel" data-panel="review">
-          <div class="panel-heading"><div><span>Step 9</span><h3>Review and share</h3></div><p>Resolve warnings, then export a JSON file for another player or GM.</p></div>
+          <div class="panel-heading"><div><span>Step 10</span><h3>Review and share</h3></div><p>Resolve warnings, then export a JSON file for another player or GM.</p></div>
           <div id="validation" class="validation"></div>
           <div id="review-sheet" class="review-sheet"></div>
           <div class="review-actions"><button id="review-export" class="button primary">Export character JSON</button></div>
         </section>
       </main>
     </div>
-    <script type="module" src="app.js?v=20261016-summon-defense"></script>
+    <script type="module" src="app.js?v=20261016-proficiencies"></script>
   </body>
 </html>

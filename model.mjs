@@ -24,12 +24,24 @@ export function proficiencyBonus(level) {
   return 3 + Math.floor((safeLevel - 1) / 3);
 }
 
+export function masteryRankCap(level) {
+  const safeLevel = Math.min(20, Math.max(1, Number(level) || 1));
+  if (safeLevel >= 12) return 3;
+  if (safeLevel >= 7) return 2;
+  return 1;
+}
+
+export function proficiencyDegreeBonus(level, degree) {
+  const safeDegree = Math.min(4, Math.max(0, Number(degree) || 0));
+  return safeDegree ? proficiencyBonus(level) + ((safeDegree - 1) * 2) : 0;
+}
+
 export function emptyCharacter() {
   const baseAbilities = Object.fromEntries(ABILITIES.map((ability) => [ability, 10]));
   return {
     schema: "naruto5e-character",
-    schemaVersion: 5,
-    appVersion: "0.5.0",
+    schemaVersion: 6,
+    appVersion: "0.6.0",
     name: "",
     player: "",
     level: 1,
@@ -54,6 +66,7 @@ export function emptyCharacter() {
     equipment: { ryo: 100, startingChoices: {}, startingDetails: {}, items: [] },
     summons: [],
     puppets: [],
+    proficiencies: { skills: {}, toolkits: [] },
     featureChoices: {},
     levelChoices: {},
     createdAt: new Date().toISOString(),
@@ -116,6 +129,18 @@ export function sanitizeCharacter(input) {
       speedAdjustment: Number(puppet.speedAdjustment) || 0,
       notes: String(puppet.notes || ""),
     })) : [],
+    proficiencies: {
+      skills: Object.fromEntries(Object.entries(input.proficiencies?.skills || {}).map(([skillId, entry]) => {
+        const value = typeof entry === "number" ? { degree: entry, source: "" } : entry || {};
+        return [skillId, { degree: Math.min(4, Math.max(0, Number(value.degree) || 0)), source: String(value.source || "") }];
+      })),
+      toolkits: Array.isArray(input.proficiencies?.toolkits) ? input.proficiencies.toolkits.filter((entry) => entry && typeof entry === "object").map((entry) => ({
+        id: String(entry.id || crypto.randomUUID()),
+        name: String(entry.name || ""),
+        degree: Math.min(4, Math.max(0, Number(entry.degree) || 0)),
+        source: String(entry.source || ""),
+      })) : [],
+    },
     featureChoices: input.featureChoices && typeof input.featureChoices === "object" ? input.featureChoices : {},
     levelChoices: input.levelChoices && typeof input.levelChoices === "object" ? input.levelChoices : {},
     updatedAt: new Date().toISOString(),
@@ -235,6 +260,14 @@ export function validateCharacter(character, rules) {
   if (!rules.clans.some((entry) => entry.id === character.clanId)) problems.push("Choose a clan.");
   if (!rules.backgrounds.some((entry) => entry.id === character.backgroundId)) problems.push("Choose a background.");
   const selectedClass = rules.classes.find((entry) => entry.id === character.classId);
+  const masteryCap = masteryRankCap(character.level);
+  for (const skill of rules.proficiencies?.skills || []) {
+    const degree = Number(character.proficiencies?.skills?.[skill.id]?.degree) || 0;
+    if (Math.max(0, degree - 1) > masteryCap) problems.push(`${skill.name} exceeds the Mastery ${masteryCap} limit for level ${character.level}.`);
+  }
+  for (const toolkit of character.proficiencies?.toolkits || []) {
+    if (Math.max(0, Number(toolkit.degree) - 1) > masteryCap) problems.push(`${toolkit.name || "A toolkit"} exceeds the Mastery ${masteryCap} limit for level ${character.level}.`);
+  }
   if (character.subclassId) {
     const subclass = rules.subclasses.find((entry) => entry.id === character.subclassId);
     if (!subclass || subclass.className !== selectedClass?.name) problems.push("The chosen subclass does not belong to the chosen class.");

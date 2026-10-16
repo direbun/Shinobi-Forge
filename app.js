@@ -1,10 +1,11 @@
-import { ABILITIES, CLASS_ASI_LEVELS, PUPPET_UPGRADE_TIERS, SUMMON_RANK_ORDER, abilityBreakdown, abilityModifier, emptyCharacter, levelTimeline, proficiencyBonus, puppetAbilityPointPool, puppetAllowedCount, puppetBaseAbilities, puppetDerivedStats, puppetUpgradeCapacity, sanitizeCharacter, startingWeaponRequirements, summonDerivedStats, syncAbilityScores, validateCharacter } from "./model.mjs";
+import { ABILITIES, CLASS_ASI_LEVELS, PUPPET_UPGRADE_TIERS, SUMMON_RANK_ORDER, abilityBreakdown, abilityModifier, emptyCharacter, levelTimeline, masteryRankCap, proficiencyBonus, proficiencyDegreeBonus, puppetAbilityPointPool, puppetAllowedCount, puppetBaseAbilities, puppetDerivedStats, puppetUpgradeCapacity, sanitizeCharacter, startingWeaponRequirements, summonDerivedStats, syncAbilityScores, validateCharacter } from "./model.mjs";
 
 const STORAGE_KEY = "shinobi-forge-character-v1";
 const state = { rules: null, character: emptyCharacter(), activeStep: "identity" };
 const summonFilters = new Map();
 const puppetFilters = new Map();
 const jutsuFilters = { disciplines: [], elements: [], hijutsu: false, clan: "", clanTouched: false };
+let showLockedProficiencyActions = false;
 const JUTSU_DISCIPLINES = ["Ninjutsu", "Bukijutsu", "Genjutsu", "Taijutsu"];
 const JUTSU_ELEMENTS = ["Fire", "Wind", "Lightning", "Earth", "Water"];
 const PUPPET_UPGRADE_SUGGESTIONS = ["Armory: Explosive Launcher", "Armory: Hook Shot", "Bulky Build", "Chakra Resonance", "Charismatic Presence", "Countermeasures", "Decoy Mode", "Destructive Habits", "Entrapment Mechanism", "Eye Lights", "Ghillie Coating", "Go-Pro", "Honed Edge", "Jutsu Channeler", "Observant Gaze", "Quickfooted", "Transforming Apparatus", "Warfare Augmentation", "Armory: Fire and Water Blaster", "Armory: Needle Wave", "Chakra Draining Mechanism", "Chakra Regulators", "Chakra Sealing Trap", "Elemental Integration", "Enhanced Durability", "Integrated Sight Mechanism", "Jutsu Specialization", "Long Distance Relationship", "Tag-Team", "Armory: Deafening Speaker", "Armory: Overdrive", "Chakra Cannon", "Deployable Shield", "Expanded Puppetry", "Exploding Puppet Mechanism", "Force of Will", "Hovering Mechanism", "Accumulated Strength", "Armory: Beheader's Blade", "Armory: Mirage Disc"];
@@ -85,6 +86,15 @@ function bindEvents() {
     saveAndRender();
   }));
   $$('.nav-step').forEach((button) => button.addEventListener("click", () => showStep(button.dataset.step)));
+  $("#proficiency-search").addEventListener("input", renderProficiencies);
+  $("#proficiency-show-locked").addEventListener("click", () => {
+    showLockedProficiencyActions = !showLockedProficiencyActions;
+    renderProficiencies();
+  });
+  $("#add-toolkit").addEventListener("click", () => {
+    state.character.proficiencies.toolkits.push({ id: crypto.randomUUID(), name: "", degree: 1, source: "" });
+    saveAndRender();
+  });
   $("#jutsu-search").addEventListener("input", renderJutsuLibrary);
   $("#jutsu-rank").addEventListener("change", renderJutsuLibrary);
   $$('[data-jutsu-discipline]').forEach((button) => button.addEventListener("click", () => { toggleFilter(jutsuFilters.disciplines, button.dataset.jutsuDiscipline); renderJutsuLibrary(); }));
@@ -134,7 +144,7 @@ function showStep(step) {
   state.activeStep = step;
   $$('.nav-step').forEach((button) => button.classList.toggle("active", button.dataset.step === step));
   $$('.step-panel').forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === step));
-  const titles = { identity:["Shape your shinobi","Start with the person behind the techniques."], build:["Choose the path","Clan, class, subclass, and background establish the build."], abilities:["Set the foundations","Record the six scores and see their modifiers."], jutsu:["Build the arsenal","Search the complete sheet catalogue and track when each jutsu was learned."], equipment:["Pack for the mission","Resolve starting choices and maintain a usable inventory."], summons:["Call trusted allies","Build a roster of creatures bound to your shinobi."], puppets:["Engineer the arsenal","Craft Puppet Tools with their own chassis, upgrades, seals, weapons, and techniques."], timeline:["See every level","Class, clan, subclass, jutsu, and personal choices in one history."], review:["Ready to share","Validate the build and export a portable character file."] };
+  const titles = { identity:["Shape your shinobi","Start with the person behind the techniques."], build:["Choose the path","Clan, class, subclass, and background establish the build."], abilities:["Set the foundations","Record the six scores and see their modifiers."], proficiencies:["Know your capabilities","Training determines both your bonus and the skill actions available to you."], jutsu:["Build the arsenal","Search the complete sheet catalogue and track when each jutsu was learned."], equipment:["Pack for the mission","Resolve starting choices and maintain a usable inventory."], summons:["Call trusted allies","Build a roster of creatures bound to your shinobi."], puppets:["Engineer the arsenal","Craft Puppet Tools with their own chassis, upgrades, seals, weapons, and techniques."], timeline:["See every level","Class, clan, subclass, jutsu, and personal choices in one history."], review:["Ready to share","Validate the build and export a portable character file."] };
   $("#page-title").textContent = titles[step][0];
   $("#page-subtitle").textContent = titles[step][1];
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -168,6 +178,7 @@ function renderAll() {
   });
   renderSubclassOptions();
   renderBuildSummary();
+  renderProficiencies();
   renderJutsuLibrary();
   renderSelectedJutsu();
   renderEquipment();
@@ -176,6 +187,62 @@ function renderAll() {
   renderPuppets();
   renderTimeline();
   renderReview();
+}
+
+function proficiencyDegreeOptions(selectedDegree) {
+  return state.rules.proficiencies.degrees.map((degree) => `<option value="${degree.value}"${Number(selectedDegree) === degree.value ? " selected" : ""}>${escapeHtml(degree.name)} · ${escapeHtml(degree.rank)}${degree.masteryBonus ? ` (+${degree.masteryBonus} mastery)` : ""}</option>`).join("");
+}
+
+function renderProficiencies() {
+  const rules = state.rules.proficiencies;
+  if (!rules) return;
+  const skills = state.character.proficiencies.skills;
+  const cap = masteryRankCap(state.character.level);
+  const trainedCount = rules.skills.filter((skill) => Number(skills[skill.id]?.degree) >= 1).length;
+  const masteredCount = rules.skills.filter((skill) => Number(skills[skill.id]?.degree) >= 2).length;
+  $("#proficiency-summary").innerHTML = `<div><span>Proficiency bonus</span><strong>${signed(proficiencyBonus(state.character.level))}</strong></div><div><span>Current mastery limit</span><strong>Mastery ${cap}</strong><small>${cap === 1 ? "Chunin" : cap === 2 ? "Jonin" : "Sannin / Kage"}</small></div><div><span>Skill training</span><strong>${trainedCount} proficient · ${masteredCount} mastered</strong></div>`;
+  const lockedButton = $("#proficiency-show-locked");
+  lockedButton.textContent = showLockedProficiencyActions ? "Hide locked actions" : "Show locked actions";
+  lockedButton.setAttribute("aria-pressed", String(showLockedProficiencyActions));
+  const query = $("#proficiency-search").value.trim().toLowerCase();
+  const filtered = rules.skills.filter((skill) => !query || `${skill.name} ${skill.ability} ${skill.actions.map((action) => `${action.name} ${action.summary}`).join(" ")}`.toLowerCase().includes(query));
+  $("#proficiency-grid").innerHTML = filtered.map((skill) => {
+    const entry = skills[skill.id] || { degree: 0, source: "" };
+    const degree = Number(entry.degree) || 0;
+    const totalBonus = abilityModifier(state.character.abilities[skill.ability]) + proficiencyDegreeBonus(state.character.level, degree);
+    const actions = skill.actions.filter((action) => showLockedProficiencyActions || action.degree <= degree);
+    const actionMarkup = actions.length ? actions.map((action) => {
+      const actionDegree = rules.degrees.find((item) => item.value === action.degree);
+      const locked = action.degree > degree;
+      return `<li class="proficiency-action${locked ? " locked" : ""}"><div><strong>${escapeHtml(action.name)}</strong><span class="proficiency-tier">${escapeHtml(actionDegree?.name || "Not Proficient")}</span>${locked ? '<span class="locked-label">Locked</span>' : ""}</div><p>${escapeHtml(action.summary)}</p></li>`;
+    }).join("") : `<li class="proficiency-empty">${skill.actions.length ? "No currently available special actions." : "The core rules list no dedicated Skill-Based Actions for this skill."}</li>`;
+    const overCap = Math.max(0, degree - 1) > cap;
+    return `<article class="proficiency-card${overCap ? " over-cap" : ""}"><header><div><h4>${escapeHtml(skill.name)}</h4><span>${escapeHtml(abilityLabel(skill.ability))}</span></div><div class="skill-numbers"><strong>${signed(totalBonus)}</strong><small>Passive ${10 + totalBonus}</small></div></header><div class="proficiency-controls"><label>Training degree<select data-skill-degree="${skill.id}">${proficiencyDegreeOptions(degree)}</select></label><label>Source<input data-skill-source="${skill.id}" value="${escapeHtml(entry.source)}" placeholder="Class, background, feat…"></label></div>${overCap ? `<p class="cap-warning">Above the Mastery ${cap} limit for level ${state.character.level}.</p>` : ""}<ul class="proficiency-actions">${actionMarkup}</ul></article>`;
+  }).join("") || '<p class="muted-copy">No skills or actions match that search.</p>';
+  $$('[data-skill-degree]').forEach((control) => control.addEventListener("change", () => {
+    const current = skills[control.dataset.skillDegree] || { source: "" };
+    skills[control.dataset.skillDegree] = { ...current, degree: Number(control.value) || 0 };
+    saveAndRender();
+  }));
+  $$('[data-skill-source]').forEach((control) => control.addEventListener("change", () => {
+    const current = skills[control.dataset.skillSource] || { degree: 0 };
+    skills[control.dataset.skillSource] = { ...current, source: control.value };
+    saveAndRender();
+  }));
+  renderToolkits();
+}
+
+function renderToolkits() {
+  const toolkits = state.character.proficiencies.toolkits;
+  $("#toolkit-list").innerHTML = toolkits.length ? toolkits.map((toolkit, index) => {
+    const degreeBonus = proficiencyDegreeBonus(state.character.level, toolkit.degree);
+    const overCap = Math.max(0, Number(toolkit.degree) - 1) > masteryRankCap(state.character.level);
+    return `<div class="toolkit-row${overCap ? " over-cap" : ""}"><label>Toolkit name<input data-toolkit-name="${index}" value="${escapeHtml(toolkit.name)}" placeholder="e.g. Poison Kit"></label><label>Training degree<select data-toolkit-degree="${index}">${proficiencyDegreeOptions(toolkit.degree)}</select></label><label>Source<input data-toolkit-source="${index}" value="${escapeHtml(toolkit.source)}" placeholder="Class, background, feat…"></label><div class="toolkit-bonus"><span>Training bonus</span><strong>${signed(degreeBonus)}</strong></div><button type="button" class="icon-button" data-remove-toolkit="${index}" aria-label="Remove toolkit">×</button></div>`;
+  }).join("") : '<p class="muted-copy">No toolkit proficiencies recorded.</p>';
+  $$('[data-toolkit-name]').forEach((control) => control.addEventListener("change", () => { toolkits[Number(control.dataset.toolkitName)].name = control.value; saveAndRender(); }));
+  $$('[data-toolkit-degree]').forEach((control) => control.addEventListener("change", () => { toolkits[Number(control.dataset.toolkitDegree)].degree = Number(control.value) || 0; saveAndRender(); }));
+  $$('[data-toolkit-source]').forEach((control) => control.addEventListener("change", () => { toolkits[Number(control.dataset.toolkitSource)].source = control.value; saveAndRender(); }));
+  $$('[data-remove-toolkit]').forEach((button) => button.addEventListener("click", () => { toolkits.splice(Number(button.dataset.removeToolkit), 1); saveAndRender(); }));
 }
 
 function renderEquipment() {
@@ -501,7 +568,9 @@ function renderReview() {
   $("#validation").className = `validation ${problems.length ? "problem" : "ok"}`;
   $("#validation").innerHTML = problems.length ? `<strong>${problems.length} item${problems.length === 1 ? "" : "s"} to review</strong><ul>${problems.map((problem) => `<li>${escapeHtml(problem)}</li>`).join("")}</ul>` : "No structural problems found. The exported JSON is ready to share.";
   const cls = find(state.rules.classes, state.character.classId); const clan = find(state.rules.clans, state.character.clanId); const subclass = find(state.rules.subclasses, state.character.subclassId); const background = find(state.rules.backgrounds, state.character.backgroundId);
-  $("#review-sheet").innerHTML = `<div class="review-title"><div><h4>${escapeHtml(state.character.name || "Unnamed shinobi")}</h4><p>${escapeHtml([clan?.name, cls?.name, subclass?.name].filter(Boolean).join(" · ") || "Build incomplete")}</p></div><strong>Level ${state.character.level}</strong></div><div class="review-grid">${ABILITIES.map((ability) => `<div class="review-stat"><span>${ability.slice(0,3)}</span><strong>${state.character.abilities[ability]} (${signed(abilityModifier(state.character.abilities[ability]))})</strong></div>`).join("")}<div class="review-stat"><span>Background</span><strong>${escapeHtml(background?.name || "—")}</strong></div><div class="review-stat"><span>Jutsu</span><strong>${state.character.jutsu.length}</strong></div><div class="review-stat"><span>Equipment</span><strong>${state.character.equipment.items.length + Object.values(state.character.equipment.startingChoices).filter(Boolean).length}</strong></div><div class="review-stat"><span>Summons</span><strong>${state.character.summons.length}</strong></div><div class="review-stat"><span>Puppets</span><strong>${state.character.puppets.length}</strong></div></div>`;
+  const trainedSkills = Object.values(state.character.proficiencies.skills).filter((entry) => Number(entry.degree) >= 1).length;
+  const masteredSkills = Object.values(state.character.proficiencies.skills).filter((entry) => Number(entry.degree) >= 2).length;
+  $("#review-sheet").innerHTML = `<div class="review-title"><div><h4>${escapeHtml(state.character.name || "Unnamed shinobi")}</h4><p>${escapeHtml([clan?.name, cls?.name, subclass?.name].filter(Boolean).join(" · ") || "Build incomplete")}</p></div><strong>Level ${state.character.level}</strong></div><div class="review-grid">${ABILITIES.map((ability) => `<div class="review-stat"><span>${ability.slice(0,3)}</span><strong>${state.character.abilities[ability]} (${signed(abilityModifier(state.character.abilities[ability]))})</strong></div>`).join("")}<div class="review-stat"><span>Background</span><strong>${escapeHtml(background?.name || "—")}</strong></div><div class="review-stat"><span>Skills</span><strong>${trainedSkills} proficient · ${masteredSkills} mastered</strong></div><div class="review-stat"><span>Toolkits</span><strong>${state.character.proficiencies.toolkits.length}</strong></div><div class="review-stat"><span>Jutsu</span><strong>${state.character.jutsu.length}</strong></div><div class="review-stat"><span>Equipment</span><strong>${state.character.equipment.items.length + Object.values(state.character.equipment.startingChoices).filter(Boolean).length}</strong></div><div class="review-stat"><span>Summons</span><strong>${state.character.summons.length}</strong></div><div class="review-stat"><span>Puppets</span><strong>${state.character.puppets.length}</strong></div></div>`;
 }
 
 function exportCharacter() {

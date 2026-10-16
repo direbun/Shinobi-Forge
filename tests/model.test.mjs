@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { abilityBreakdown, abilityModifier, emptyCharacter, proficiencyBonus, puppetAbilityPointPool, puppetAllowedCount, puppetDerivedStats, puppetUpgradeCapacity, puppetUpgradeProblems, sanitizeCharacter, startingWeaponRequirements, summonDerivedStats, syncAbilityScores, validateCharacter } from "../model.mjs";
+import { abilityBreakdown, abilityModifier, emptyCharacter, masteryRankCap, proficiencyBonus, proficiencyDegreeBonus, puppetAbilityPointPool, puppetAllowedCount, puppetDerivedStats, puppetUpgradeCapacity, puppetUpgradeProblems, sanitizeCharacter, startingWeaponRequirements, summonDerivedStats, syncAbilityScores, validateCharacter } from "../model.mjs";
 
 assert.equal(abilityModifier(10), 0);
 assert.equal(abilityModifier(9), -1);
@@ -8,6 +8,14 @@ assert.equal(abilityModifier(18), 4);
 assert.equal(proficiencyBonus(1), 3);
 assert.equal(proficiencyBonus(4), 4);
 assert.equal(proficiencyBonus(20), 9);
+assert.equal(masteryRankCap(1), 1);
+assert.equal(masteryRankCap(6), 1);
+assert.equal(masteryRankCap(7), 2);
+assert.equal(masteryRankCap(12), 3);
+assert.equal(proficiencyDegreeBonus(1, 0), 0);
+assert.equal(proficiencyDegreeBonus(1, 1), 3);
+assert.equal(proficiencyDegreeBonus(1, 2), 5);
+assert.equal(proficiencyDegreeBonus(1, 4), 9);
 
 const character = emptyCharacter();
 const restored = sanitizeCharacter({ ...character, level: 999, abilities: { strength: 99 } });
@@ -17,6 +25,7 @@ assert.equal(restored.abilities.dexterity, 10);
 assert.deepEqual(restored.equipment, { ryo: 100, startingChoices: {}, startingDetails: {}, items: [] });
 assert.deepEqual(restored.summons, []);
 assert.deepEqual(restored.puppets, []);
+assert.deepEqual(restored.proficiencies, { skills: {}, toolkits: [] });
 assert.deepEqual(startingWeaponRequirements("1 Simple Weapon, 2 Martial Weapons"), ["Simple", "Martial", "Martial"]);
 
 const summon = { rank: "B-Rank", roleMode: "dual", primaryRole: "Defender", secondaryRole: "Caster", statIncreases: { constitution: 2 }, hpAdjustment: 0, acAdjustment: 0 };
@@ -50,8 +59,13 @@ syncAbilityScores(character);
 assert.deepEqual(abilityBreakdown(character, "strength"), { base: 10, clan: 2, background: 1, class: 1, manual: 0 });
 assert.equal(character.abilities.strength, 14);
 
-const rules = { classes: [], clans: [], backgrounds: [], subclasses: [], summons: { tribes: [], ranks: {} } };
+const rules = { classes: [], clans: [], backgrounds: [], subclasses: [], summons: { tribes: [], ranks: {} }, proficiencies: { skills: [] } };
 assert.equal(validateCharacter(character, rules).length, 4);
+
+const trained = sanitizeCharacter({ ...emptyCharacter(), proficiencies: { skills: { athletics: { degree: 3, source: "Class" } }, toolkits: [{ id: "kit", name: "Poison Kit", degree: 2, source: "Background" }] } });
+assert.deepEqual(trained.proficiencies.skills.athletics, { degree: 3, source: "Class" });
+assert.equal(trained.proficiencies.toolkits[0].degree, 2);
+assert.equal(validateCharacter(trained, { ...rules, proficiencies: { skills: [{ id: "athletics", name: "Athletics" }] } }).filter((entry) => entry.includes("Athletics exceeds")).length, 1);
 
 const extractedRules = JSON.parse(readFileSync(new URL("../data/rules.json", import.meta.url), "utf8"));
 const expectedSummonAbilities = {
