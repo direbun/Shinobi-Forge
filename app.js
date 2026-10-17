@@ -8,6 +8,36 @@ const jutsuFilters = { disciplines: [], elements: [], hijutsu: false, clan: "", 
 let showLockedProficiencyActions = false;
 const JUTSU_DISCIPLINES = ["Ninjutsu", "Bukijutsu", "Genjutsu", "Taijutsu"];
 const JUTSU_ELEMENTS = ["Fire", "Wind", "Lightning", "Earth", "Water"];
+const CAPABILITY_GROUPS = [
+  { title: "Basic nature releases", description: "The five foundational chakra natures.", entries: [
+    { id: "fire", name: "Fire", glyph: "火", tone: "fire", pattern: /\b(fire release|katon)\b/i },
+    { id: "wind", name: "Wind", glyph: "風", tone: "wind", pattern: /\b(wind release|futon)\b/i },
+    { id: "lightning", name: "Lightning", glyph: "雷", tone: "lightning", pattern: /\b(lightning release|raiton)\b/i },
+    { id: "earth", name: "Earth", glyph: "土", tone: "earth", pattern: /\b(earth release|doton)\b/i },
+    { id: "water", name: "Water", glyph: "水", tone: "water", pattern: /\b(water release|suiton)\b/i },
+  ]},
+  { title: "Advanced and spiritual releases", description: "Combined natures, bloodline releases, and spiritual affinities.", entries: [
+    { id: "ice", name: "Ice", glyph: "氷", tone: "ice", pattern: /\b(ice release|hyoton)\b/i },
+    { id: "lava", name: "Lava", glyph: "溶", tone: "lava", pattern: /\b(lava release|yoton)\b/i },
+    { id: "boil", name: "Boil", glyph: "沸", tone: "boil", pattern: /\b(boil release|futton)\b/i },
+    { id: "storm", name: "Storm", glyph: "嵐", tone: "storm", pattern: /\b(storm release|ranton)\b/i },
+    { id: "magnet", name: "Magnet", glyph: "磁", tone: "magnet", pattern: /\b(magnet release|jiton)\b/i },
+    { id: "scorch", name: "Scorch", glyph: "灼", tone: "scorch", pattern: /\b(scorch release|shakuton)\b/i },
+    { id: "explosion", name: "Explosion", glyph: "爆", tone: "explosion", pattern: /\b(explosion release|bakuton)\b/i },
+    { id: "wood", name: "Wood", glyph: "木", tone: "wood", pattern: /\bwood release\b/i },
+    { id: "crystal", name: "Crystal", glyph: "晶", tone: "crystal", pattern: /\b(crystal release|shoton)\b/i },
+    { id: "dust", name: "Dust", glyph: "塵", tone: "dust", pattern: /\bdust release\b/i },
+    { id: "yin", name: "Yin", glyph: "陰", tone: "yin", pattern: /\byin release\b/i },
+    { id: "yang", name: "Yang", glyph: "陽", tone: "yang", pattern: /\byang release\b/i },
+  ]},
+  { title: "Special jutsu access", description: "Track permissions that unlock otherwise restricted techniques.", entries: [
+    { id: "medical", name: "Medical", glyph: "医", tone: "medical", pattern: /\bmedical\b/i },
+    { id: "sensory", name: "Sensory", glyph: "感", tone: "sensory", pattern: /\bsensory\b/i },
+    { id: "fuinjutsu", name: "Fuinjutsu", glyph: "封", tone: "fuinjutsu", pattern: /\b(fuinjutsu|sealing)\b/i },
+    { id: "hijutsu", name: "Hijutsu", glyph: "秘", tone: "hijutsu", pattern: /\bhijutsu\b/i },
+  ]},
+];
+const CAPABILITY_ENTRIES = CAPABILITY_GROUPS.flatMap((group) => group.entries);
 const PUPPET_UPGRADE_SUGGESTIONS = ["Armory: Explosive Launcher", "Armory: Hook Shot", "Bulky Build", "Chakra Resonance", "Charismatic Presence", "Countermeasures", "Decoy Mode", "Destructive Habits", "Entrapment Mechanism", "Eye Lights", "Ghillie Coating", "Go-Pro", "Honed Edge", "Jutsu Channeler", "Observant Gaze", "Quickfooted", "Transforming Apparatus", "Warfare Augmentation", "Armory: Fire and Water Blaster", "Armory: Needle Wave", "Chakra Draining Mechanism", "Chakra Regulators", "Chakra Sealing Trap", "Elemental Integration", "Enhanced Durability", "Integrated Sight Mechanism", "Jutsu Specialization", "Long Distance Relationship", "Tag-Team", "Armory: Deafening Speaker", "Armory: Overdrive", "Chakra Cannon", "Deployable Shield", "Expanded Puppetry", "Exploding Puppet Mechanism", "Force of Will", "Hovering Mechanism", "Accumulated Strength", "Armory: Beheader's Blade", "Armory: Mirage Disc"];
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -132,10 +162,14 @@ function bindEvents() {
   });
 }
 
-function saveAndRender() {
+function persistCharacter() {
   syncAbilityScores(state.character);
   state.character.updatedAt = new Date().toISOString();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.character));
+}
+
+function saveAndRender() {
+  persistCharacter();
   renderAll();
   $("#save-status").textContent = `Saved locally ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 }
@@ -203,6 +237,7 @@ function renderProficiencies() {
   const masteredCount = rules.skills.filter((skill) => effectiveSkillDegree(state.character, state.rules, skill.id) >= 2).length;
   $("#proficiency-summary").innerHTML = `<div><span>Proficiency bonus</span><strong>${signed(proficiencyBonus(state.character.level))}</strong></div><div><span>Current mastery limit</span><strong>Mastery ${cap}</strong><small>${cap === 1 ? "Chunin" : cap === 2 ? "Jonin" : "Sannin / Kage"}</small></div><div><span>Skill training</span><strong>${trainedCount} proficient · ${masteredCount} mastered</strong></div>`;
   renderProficiencyGrantGuide();
+  renderCapabilityTraining();
   const lockedButton = $("#proficiency-show-locked");
   lockedButton.textContent = showLockedProficiencyActions ? "Hide locked actions" : "Show locked actions";
   lockedButton.setAttribute("aria-pressed", String(showLockedProficiencyActions));
@@ -233,6 +268,78 @@ function renderProficiencies() {
     saveAndRender();
   }));
   renderToolkits();
+}
+
+function automaticCapabilitySources(capability) {
+  const cls = find(state.rules.classes, state.character.classId);
+  const clan = find(state.rules.clans, state.character.clanId);
+  const subclass = find(state.rules.subclasses, state.character.subclassId);
+  const sources = [];
+  if (capability.id === "medical" && cls?.name === "Medical-Nin") sources.push(`Class: ${cls.name}`);
+  for (const [label, source] of [["Clan", clan], ["Class", cls], ["Subclass", subclass]]) {
+    if (!source) continue;
+    const featureNames = Object.entries(source.featuresByLevel || {}).filter(([level]) => Number(level) <= Number(state.character.level)).flatMap(([, features]) => features.map((feature) => feature.name)).join(" ");
+    if (capability.pattern.test(`${source.name} ${featureNames}`) && !sources.some((entry) => entry.startsWith(`${label}:`))) sources.push(`${label}: ${source.name}`);
+  }
+  return sources;
+}
+
+function capabilityStatus(capability) {
+  const entry = state.character.capabilities.entries[capability.id];
+  const automatic = automaticCapabilitySources(capability);
+  return { enabled: entry ? Boolean(entry.enabled) : automatic.length > 0, source: entry?.source || "", automatic };
+}
+
+function renderCapabilityTraining() {
+  const cls = find(state.rules.classes, state.character.classId);
+  const training = cls?.combatProficiencies;
+  const extras = state.character.capabilities.trainingExtras;
+  const trainingTypes = [
+    ["armor", "Armor", "Protection the class is trained to wear"],
+    ["weapons", "Weapons", "Weapon groups and specific weapons"],
+    ["ninjaTools", "Ninja tools", "Kits and specialized shinobi tools"],
+    ["savingThrows", "Saving throws", "Class saving throw proficiencies"],
+  ];
+  const trainingCards = trainingTypes.map(([key, label, description]) => {
+    const values = training?.[key] || [];
+    return `<article class="training-card"><header><span>${escapeHtml(label)}</span><small>${escapeHtml(description)}</small></header><div class="training-chip-list">${values.length ? values.map((value) => `<strong>${escapeHtml(value)}<em>Class</em></strong>`).join("") : `<span class="training-none">${training ? "None granted" : "Class source unavailable"}</span>`}</div><label>Additional grants<input data-training-extra="${key}" value="${escapeHtml(extras[key] || "")}" placeholder="Feat, clan, equipment…"></label></article>`;
+  }).join("");
+  const releaseGroups = CAPABILITY_GROUPS.map((group) => `<section class="release-group"><div class="release-group-heading"><div><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml(group.description)}</small></div></div><div class="release-grid">${group.entries.map((capability) => {
+    const status = capabilityStatus(capability);
+    return `<article class="release-tile ${capability.tone}${status.enabled ? " selected" : ""}"><button type="button" data-capability-toggle="${capability.id}" aria-pressed="${status.enabled}"><span class="release-glyph">${capability.glyph}</span><span class="release-name">${escapeHtml(capability.name)}</span><span class="release-check">${status.enabled ? "✓ Known" : "+ Add"}</span></button>${status.enabled ? `<div class="release-source">${status.automatic.map((source) => `<span>${escapeHtml(source)}</span>`).join("")}<label>Other source<input data-capability-source="${capability.id}" value="${escapeHtml(status.source)}" placeholder="Feat, training, story…"></label></div>` : ""}</article>`;
+  }).join("")}</div></section>`).join("");
+  const custom = state.character.capabilities.custom.map((entry, index) => `<div class="custom-release-row"><input data-custom-capability-name="${index}" value="${escapeHtml(entry.name)}" placeholder="Custom release or access"><input data-custom-capability-source="${index}" value="${escapeHtml(entry.source)}" placeholder="Source"><button type="button" class="icon-button" data-remove-custom-capability="${index}" aria-label="Remove ${escapeHtml(entry.name || "custom capability")}">×</button></div>`).join("");
+  $("#capability-training-panel").innerHTML = `<section class="training-panel"><div class="section-lead"><div><span>Class training</span><h4>${escapeHtml(cls?.name || "Choose a class")}</h4></div><p>Class proficiencies are shown automatically. Use the additional fields for feats, clans, equipment, or campaign rewards.</p></div><div class="training-grid">${trainingCards}</div></section><section class="release-panel"><div class="section-lead"><div><span>Chakra capabilities</span><h4>Releases and special access</h4></div><p>Click a tile to add or remove access. Automatic source suggestions remain visible, and manual sources travel with the JSON.</p></div>${releaseGroups}<div class="custom-release-section"><div class="source-heading"><div><strong>Custom releases and permissions</strong><small>For campaign-specific kekkei genkai, learned traditions, or unusual permissions.</small></div><button type="button" id="add-custom-capability" class="button ghost">Add custom</button></div><div class="custom-release-list">${custom || '<p class="muted-copy">No custom capabilities recorded.</p>'}</div></div></section>`;
+  $$('[data-training-extra]').forEach((control) => {
+    control.addEventListener("input", () => { extras[control.dataset.trainingExtra] = control.value; persistCharacter(); });
+    control.addEventListener("change", saveAndRender);
+  });
+  $$('[data-capability-toggle]').forEach((button) => button.addEventListener("click", () => {
+    const capability = CAPABILITY_ENTRIES.find((entry) => entry.id === button.dataset.capabilityToggle);
+    const status = capabilityStatus(capability);
+    const current = state.character.capabilities.entries[capability.id] || { source: "" };
+    state.character.capabilities.entries[capability.id] = { ...current, enabled: !status.enabled };
+    saveAndRender();
+  }));
+  $$('[data-capability-source]').forEach((control) => {
+    const updateSource = () => {
+      const id = control.dataset.capabilitySource;
+      const current = state.character.capabilities.entries[id] || { enabled: true };
+      state.character.capabilities.entries[id] = { ...current, source: control.value };
+    };
+    control.addEventListener("input", () => { updateSource(); persistCharacter(); });
+    control.addEventListener("change", () => { updateSource(); saveAndRender(); });
+  });
+  $("#add-custom-capability").addEventListener("click", () => { state.character.capabilities.custom.push({ id: crypto.randomUUID(), name: "", source: "" }); saveAndRender(); });
+  $$('[data-custom-capability-name]').forEach((control) => {
+    control.addEventListener("input", () => { state.character.capabilities.custom[Number(control.dataset.customCapabilityName)].name = control.value; persistCharacter(); });
+    control.addEventListener("change", saveAndRender);
+  });
+  $$('[data-custom-capability-source]').forEach((control) => {
+    control.addEventListener("input", () => { state.character.capabilities.custom[Number(control.dataset.customCapabilitySource)].source = control.value; persistCharacter(); });
+    control.addEventListener("change", saveAndRender);
+  });
+  $$('[data-remove-custom-capability]').forEach((button) => button.addEventListener("click", () => { state.character.capabilities.custom.splice(Number(button.dataset.removeCustomCapability), 1); saveAndRender(); }));
 }
 
 function renderProficiencyGrantGuide() {
@@ -613,7 +720,10 @@ function renderReview() {
   const trainedSkills = state.rules.proficiencies.skills.filter((skill) => effectiveSkillDegree(state.character, state.rules, skill.id) >= 1).length;
   const masteredSkills = state.rules.proficiencies.skills.filter((skill) => effectiveSkillDegree(state.character, state.rules, skill.id) >= 2).length;
   const toolkitCount = state.character.proficiencies.toolkits.length + grantedToolkits(state.character, state.rules).length;
-  $("#review-sheet").innerHTML = `<div class="review-title"><div><h4>${escapeHtml(state.character.name || "Unnamed shinobi")}</h4><p>${escapeHtml([clan?.name, cls?.name, subclass?.name].filter(Boolean).join(" · ") || "Build incomplete")}</p></div><strong>Level ${state.character.level}</strong></div><div class="review-grid">${ABILITIES.map((ability) => `<div class="review-stat"><span>${ability.slice(0,3)}</span><strong>${state.character.abilities[ability]} (${signed(abilityModifier(state.character.abilities[ability]))})</strong></div>`).join("")}<div class="review-stat"><span>Background</span><strong>${escapeHtml(background?.name || "—")}</strong></div><div class="review-stat"><span>Skills</span><strong>${trainedSkills} proficient · ${masteredSkills} mastered</strong></div><div class="review-stat"><span>Toolkits</span><strong>${toolkitCount}</strong></div><div class="review-stat"><span>Jutsu</span><strong>${state.character.jutsu.length}</strong></div><div class="review-stat"><span>Equipment</span><strong>${state.character.equipment.items.length + Object.values(state.character.equipment.startingChoices).filter(Boolean).length}</strong></div><div class="review-stat"><span>Summons</span><strong>${state.character.summons.length}</strong></div><div class="review-stat"><span>Puppets</span><strong>${state.character.puppets.length}</strong></div></div>`;
+  const releaseIds = new Set(CAPABILITY_GROUPS.slice(0, 2).flatMap((group) => group.entries.map((entry) => entry.id)));
+  const releases = CAPABILITY_ENTRIES.filter((entry) => releaseIds.has(entry.id) && capabilityStatus(entry).enabled).map((entry) => entry.name).concat(state.character.capabilities.custom.map((entry) => entry.name).filter(Boolean));
+  const specialAccess = CAPABILITY_GROUPS[2].entries.filter((entry) => capabilityStatus(entry).enabled).map((entry) => entry.name);
+  $("#review-sheet").innerHTML = `<div class="review-title"><div><h4>${escapeHtml(state.character.name || "Unnamed shinobi")}</h4><p>${escapeHtml([clan?.name, cls?.name, subclass?.name].filter(Boolean).join(" · ") || "Build incomplete")}</p></div><strong>Level ${state.character.level}</strong></div><div class="review-grid">${ABILITIES.map((ability) => `<div class="review-stat"><span>${ability.slice(0,3)}</span><strong>${state.character.abilities[ability]} (${signed(abilityModifier(state.character.abilities[ability]))})</strong></div>`).join("")}<div class="review-stat"><span>Background</span><strong>${escapeHtml(background?.name || "—")}</strong></div><div class="review-stat"><span>Skills</span><strong>${trainedSkills} proficient · ${masteredSkills} mastered</strong></div><div class="review-stat"><span>Toolkits</span><strong>${toolkitCount}</strong></div><div class="review-stat"><span>Releases</span><strong>${escapeHtml(releases.join(", ") || "None recorded")}</strong></div><div class="review-stat"><span>Special access</span><strong>${escapeHtml(specialAccess.join(", ") || "None recorded")}</strong></div><div class="review-stat"><span>Jutsu</span><strong>${state.character.jutsu.length}</strong></div><div class="review-stat"><span>Equipment</span><strong>${state.character.equipment.items.length + Object.values(state.character.equipment.startingChoices).filter(Boolean).length}</strong></div><div class="review-stat"><span>Summons</span><strong>${state.character.summons.length}</strong></div><div class="review-stat"><span>Puppets</span><strong>${state.character.puppets.length}</strong></div></div>`;
 }
 
 function exportCharacter() {

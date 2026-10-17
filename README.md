@@ -16,6 +16,8 @@ Then open <http://localhost:4173>.
 
 - Identity, level, clan, class, subclass, background, and ability scores
 - Guided class/background skill proficiency grants, duplicate replacements, toolkit grants, and automatic source tracking
+- Source-backed class armor, weapon, ninja-tool, and saving-throw proficiencies
+- Toggleable basic and advanced elemental releases, Medical/Sensory/Fuinjutsu/Hijutsu access, automatic source suggestions, and custom capabilities
 - Itemized ability math for clan +2/+1, background +1 or feat, class-level increases, and exceptional adjustments
 - Searchable jutsu catalogue with the level learned
 - Visible jutsu classifications, elemental keywords, other keywords, components, range, and casting time

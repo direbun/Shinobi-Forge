@@ -26,6 +26,7 @@ assert.deepEqual(restored.equipment, { ryo: 100, startingChoices: {}, startingDe
 assert.deepEqual(restored.summons, []);
 assert.deepEqual(restored.puppets, []);
 assert.deepEqual(restored.proficiencies, { skills: {}, toolkits: [], grantChoices: {} });
+assert.deepEqual(restored.capabilities, { entries: {}, custom: [], trainingExtras: { armor: "", weapons: "", ninjaTools: "", savingThrows: "" } });
 assert.deepEqual(startingWeaponRequirements("1 Simple Weapon, 2 Martial Weapons"), ["Simple", "Martial", "Martial"]);
 
 const summon = { rank: "B-Rank", roleMode: "dual", primaryRole: "Defender", secondaryRole: "Caster", statIncreases: { constitution: 2 }, hpAdjustment: 0, acAdjustment: 0 };
@@ -68,6 +69,14 @@ assert.equal(trained.proficiencies.toolkits[0].degree, 2);
 assert.equal(validateCharacter(trained, { ...rules, proficiencies: { skills: [{ id: "athletics", name: "Athletics" }] } }).filter((entry) => entry.includes("Athletics exceeds")).length, 1);
 
 const extractedRules = JSON.parse(readFileSync(new URL("../data/rules.json", import.meta.url), "utf8"));
+const medicalClass = extractedRules.classes.find(({ name }) => name === "Medical-Nin");
+assert.deepEqual(medicalClass.combatProficiencies.armor, ["Light Armor", "Medium Armor"]);
+assert.deepEqual(medicalClass.combatProficiencies.ninjaTools, ["Medicine Kit", "Poison Kit"]);
+const capabilityCharacter = sanitizeCharacter({ ...emptyCharacter(), capabilities: { entries: { fire: { enabled: true, source: "Feat" }, medical: { enabled: false, source: "" } }, custom: [{ id: "custom", name: "Ink Release", source: "Clan" }], trainingExtras: { weapons: "Gunbai Fan" } } });
+assert.deepEqual(capabilityCharacter.capabilities.entries.fire, { enabled: true, source: "Feat" });
+assert.equal(capabilityCharacter.capabilities.entries.medical.enabled, false);
+assert.equal(capabilityCharacter.capabilities.custom[0].name, "Ink Release");
+assert.equal(capabilityCharacter.capabilities.trainingExtras.weapons, "Gunbai Fan");
 const guided = emptyCharacter();
 guided.classId = extractedRules.classes.find(({ name }) => name === "Medical-Nin").id;
 guided.backgroundId = extractedRules.backgrounds.find(({ name }) => name === "Hermit").id;

@@ -40,8 +40,8 @@ export function emptyCharacter() {
   const baseAbilities = Object.fromEntries(ABILITIES.map((ability) => [ability, 10]));
   return {
     schema: "naruto5e-character",
-    schemaVersion: 7,
-    appVersion: "0.7.0",
+    schemaVersion: 8,
+    appVersion: "0.8.0",
     name: "",
     player: "",
     level: 1,
@@ -67,6 +67,11 @@ export function emptyCharacter() {
     summons: [],
     puppets: [],
     proficiencies: { skills: {}, toolkits: [], grantChoices: {} },
+    capabilities: {
+      entries: {},
+      custom: [],
+      trainingExtras: { armor: "", weapons: "", ninjaTools: "", savingThrows: "" },
+    },
     featureChoices: {},
     levelChoices: {},
     createdAt: new Date().toISOString(),
@@ -141,6 +146,16 @@ export function sanitizeCharacter(input) {
         source: String(entry.source || ""),
       })) : [],
       grantChoices: input.proficiencies?.grantChoices && typeof input.proficiencies.grantChoices === "object" ? Object.fromEntries(Object.entries(input.proficiencies.grantChoices).map(([id, values]) => [id, Array.isArray(values) ? values.filter(Boolean).map(String) : []])) : {},
+    },
+    capabilities: {
+      entries: input.capabilities?.entries && typeof input.capabilities.entries === "object" ? Object.fromEntries(Object.entries(input.capabilities.entries).map(([id, entry]) => [id, { enabled: Boolean(entry?.enabled), source: String(entry?.source || "") }])) : {},
+      custom: Array.isArray(input.capabilities?.custom) ? input.capabilities.custom.filter((entry) => entry && typeof entry === "object").map((entry) => ({ id: String(entry.id || crypto.randomUUID()), name: String(entry.name || ""), source: String(entry.source || "") })) : [],
+      trainingExtras: {
+        armor: String(input.capabilities?.trainingExtras?.armor || ""),
+        weapons: String(input.capabilities?.trainingExtras?.weapons || ""),
+        ninjaTools: String(input.capabilities?.trainingExtras?.ninjaTools || ""),
+        savingThrows: String(input.capabilities?.trainingExtras?.savingThrows || ""),
+      },
     },
     featureChoices: input.featureChoices && typeof input.featureChoices === "object" ? input.featureChoices : {},
     levelChoices: input.levelChoices && typeof input.levelChoices === "object" ? input.levelChoices : {},

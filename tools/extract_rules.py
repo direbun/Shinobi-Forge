@@ -152,6 +152,20 @@ CLASS_PROFICIENCY_GRANTS = {
     "Science-Nin": [choose_skills("class-science", 4, ["ninshou", "insight", "investigation", "nature", "crafting", "athletics", "history", "stealth", "perception", "medicine", "chakra-control"])],
 }
 
+CLASS_COMBAT_PROFICIENCIES = {
+    "Genjutsu-Specialist": {"armor": ["Light Armor"], "weapons": ["Simple Weapons"], "ninjaTools": ["Trapper's Kit"], "savingThrows": ["Constitution", "Charisma"]},
+    "Hunter-Nin": {"armor": ["Light Armor"], "weapons": ["Simple Weapons", "Broadsword", "Iron Claw", "Katana", "Knuckle Blades", "Chakram"], "ninjaTools": ["Tracking Kit", "Forensics Kit"], "savingThrows": ["Dexterity", "Intelligence"]},
+    "Intelligence-Operative": {"armor": ["Light Armor", "Medium Armor"], "weapons": ["Simple Weapons", "Fuma Shuriken", "Knuckle Blades"], "ninjaTools": ["Trapper's Kit", "Poison Kit", "Tracking Kit", "Forensics Kit", "Forgery Kit"], "savingThrows": ["Dexterity", "Intelligence"]},
+    "Medical-Nin": {"armor": ["Light Armor", "Medium Armor"], "weapons": ["Simple Weapons"], "ninjaTools": ["Medicine Kit", "Poison Kit"], "savingThrows": ["Wisdom", "Charisma"]},
+    "Ninjutsu-Specialist": {"armor": ["Light Armor"], "weapons": ["Simple Weapons"], "ninjaTools": [], "savingThrows": ["Wisdom", "Intelligence"]},
+    "Scout-Nin": {"armor": ["Light Armor", "Medium Armor"], "weapons": ["Simple Weapons", "Martial Weapons"], "ninjaTools": ["Tracking Kit", "Trapper's Kit"], "savingThrows": ["Strength", "Constitution"]},
+    "Taijutsu-Specialist": {"armor": [], "weapons": ["Simple Weapons", "Martial Weapons"], "ninjaTools": ["Tracking Kit", "Trapper's Kit"], "savingThrows": ["Strength", "Dexterity"]},
+    "Weapon-Specialist": {"armor": ["Light Armor", "Medium Armor", "Heavy Armor"], "weapons": ["Simple Weapons", "Martial Weapons"], "ninjaTools": ["Trapper's Kit", "Poison Kit", "Tracking Kit", "Weaponsmith Kit", "Armorsmith Kit"], "savingThrows": ["Strength", "Constitution"]},
+    "Puppet-Master": {"armor": ["Light Armor", "Medium Armor"], "weapons": ["Simple Weapons", "Battle Wire", "Hand Crossbow", "Heavy Crossbow", "Fuma Shuriken"], "ninjaTools": ["Armorsmith Kit", "Weaponsmith Kit"], "savingThrows": ["Strength", "Constitution", "Intelligence"]},
+    "Cooking-Nin": {"armor": ["Light Armor", "Medium Armor"], "weapons": ["Simple Weapons"], "ninjaTools": ["Cooking Kit", "Poison Kit"], "savingThrows": ["Constitution", "Charisma", "Intelligence"]},
+    "Science-Nin": {"armor": ["Light Armor", "Medium Armor"], "weapons": ["Simple Weapons", "Scientific Ninja Tools"], "ninjaTools": ["Choose 3 Ninja Tools"], "savingThrows": ["Dexterity", "Constitution", "Intelligence"]},
+}
+
 BACKGROUND_PROFICIENCY_GRANTS = {
     "Entertainer": {"skills": [fixed_skills("background-entertainer", "acrobatics", "performance")], "toolkits": ["Disguise Kit"]},
     "Genius": {"skills": [choose_skills("background-genius", 2, ["ninshou", "martial-arts", "investigation", "history"])], "toolkitChoice": True},
@@ -449,6 +463,7 @@ def extract_classes(workbook, catalog) -> list[dict]:
                 for index, choices in enumerate(STARTING_EQUIPMENT.get(name, []), 1)
             ],
             "skillGrants": CLASS_PROFICIENCY_GRANTS.get(name, []),
+            "combatProficiencies": CLASS_COMBAT_PROFICIENCIES.get(name),
             "featuresByLevel": features,
         })
     return classes
