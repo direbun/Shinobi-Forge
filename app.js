@@ -43,16 +43,67 @@ const CAPABILITY_ENTRIES = CAPABILITY_GROUPS.flatMap((group) => group.entries);
 const PUPPET_UPGRADE_SUGGESTIONS = ["Armory: Explosive Launcher", "Armory: Hook Shot", "Bulky Build", "Chakra Resonance", "Charismatic Presence", "Countermeasures", "Decoy Mode", "Destructive Habits", "Entrapment Mechanism", "Eye Lights", "Ghillie Coating", "Go-Pro", "Honed Edge", "Jutsu Channeler", "Observant Gaze", "Quickfooted", "Transforming Apparatus", "Warfare Augmentation", "Armory: Fire and Water Blaster", "Armory: Needle Wave", "Chakra Draining Mechanism", "Chakra Regulators", "Chakra Sealing Trap", "Elemental Integration", "Enhanced Durability", "Integrated Sight Mechanism", "Jutsu Specialization", "Long Distance Relationship", "Tag-Team", "Armory: Deafening Speaker", "Armory: Overdrive", "Chakra Cannon", "Deployable Shield", "Expanded Puppetry", "Exploding Puppet Mechanism", "Force of Will", "Hovering Mechanism", "Accumulated Strength", "Armory: Beheader's Blade", "Armory: Mirage Disc"];
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+let apiMode = "unknown";
+let localEnginePromise;
+
+async function getLocalEngine() {
+  if (!localEnginePromise) {
+    localEnginePromise = Promise.all([
+      import("./server/engine.mjs"),
+      fetch("./private-data/rules.json", { cache: "no-store" }),
+    ]).then(async ([{ createEngine }, response]) => {
+      if (!response.ok) throw new Error(`Static rules failed to load (${response.status}).`);
+      return createEngine(await response.json());
+    });
+  }
+  return localEnginePromise;
+}
+
+async function localApi(path, body = {}) {
+  const engine = await getLocalEngine();
+  if (path === "/api/v1/bootstrap") return engine.bootstrap();
+  if (path === "/api/v1/selection") return engine.selection(body);
+  if (path === "/api/v1/jutsu/search") return engine.searchJutsu(body);
+  if (path === "/api/v1/equipment/search") return engine.searchEquipment(body);
+  if (path === "/api/v1/summon/tribe") {
+    const tribe = engine.summonTribe(body.id);
+    if (!tribe) throw new Error("The requested summon tribe does not exist.");
+    return tribe;
+  }
+  if (path === "/api/v1/evaluate") return engine.evaluate(body.character || body);
+  if (path === "/api/v1/import") return engine.importCharacter(body.character || body);
+  if (path === "/api/v1/equipment/purchase") return engine.purchaseEquipment(body.character, String(body.itemId || ""));
+  if (path === "/api/v1/jutsu/select") return engine.selectJutsu(body.character, String(body.jutsuId || ""), body.target || {});
+  if (path === "/api/v1/export") return engine.exportCharacter(body.character || body);
+  throw new Error("Unknown local application route.");
+}
 
 async function api(path, body) {
-  const response = await fetch(path, body === undefined ? { cache: "no-store" } : {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error?.message || `Server request failed (${response.status}).`);
-  return payload;
+  if (apiMode === "static") return localApi(path, body);
+  try {
+    const response = await fetch(path, body === undefined ? { cache: "no-store" } : {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const contentType = response.headers.get("content-type") || "";
+    const payload = contentType.includes("application/json") ? await response.json() : {};
+    if (!response.ok) {
+      if (apiMode === "unknown" && path === "/api/v1/bootstrap" && (response.status === 404 || !contentType.includes("application/json"))) {
+        apiMode = "static";
+        return localApi(path, body);
+      }
+      throw new Error(payload.error?.message || `Server request failed (${response.status}).`);
+    }
+    apiMode = "server";
+    return payload;
+  } catch (error) {
+    if (apiMode === "unknown" && path === "/api/v1/bootstrap") {
+      apiMode = "static";
+      return localApi(path, body);
+    }
+    throw error;
+  }
 }
 
 function clone(value) { return structuredClone(value); }

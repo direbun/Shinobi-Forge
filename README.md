@@ -2,10 +2,16 @@
 
 This repository contains the complete secure client-server Shinobi Forge application. It is self-contained: no files from the original development workspace are required.
 
+This is the full project repository, not a deployment-only subset. It includes the editable frontend, server, shared character model, both static and server rules copies, production build output, tests, extraction tooling, documentation, and the source character-sheet workbook.
+
+The same root frontend also supports a static GitHub Pages preview. When the server API is unavailable, it loads `private-data/rules.json` and the shared rules engine directly in the browser so the character builder remains usable for bug checking.
+
 ## Security boundary
 
 - `index.html`, `app.js`, and `styles.css` at the repository root are the single canonical frontend source. There is no second frontend copy hidden in another folder.
-- `private-data/rules.json` is loaded only by Node and is not routable.
+- `public/` mirrors the current frontend for historical/server-source inspection, while `dist/` contains the verified production build output.
+- `model.mjs`, `data/`, `tools/`, `tests/`, `docs/`, and `source-character-sheet.xlsx` are included so rules extraction and bug investigation can be reproduced from the repository.
+- During a server deployment, `private-data/rules.json` is loaded only by Node and is not routable. In a public GitHub Pages preview, the same file is necessarily downloadable because the repository and preview are public.
 - `server/character-model.mjs` is the authoritative rules engine and is not routable.
 - All production requests require a valid Cloudflare Access assertion.
 - The container publishes no host port in `compose.yaml`.
