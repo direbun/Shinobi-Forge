@@ -6,6 +6,18 @@ This is the full project repository, not a deployment-only subset. It includes t
 
 The same root frontend also supports a static GitHub Pages preview. When the server API is unavailable, it loads `private-data/rules.json` and the shared rules engine directly in the browser so the character builder remains usable for bug checking.
 
+## Guided character advancement
+
+The Class & Levels screen presents advancement as a guided workflow with a level controller, current and next-level summaries, and constrained selectors for verified feature choices. The Level Timeline always displays levels 1–20, distinguishes attained and future levels, exposes full feature descriptions, and allows the player to jump directly to a future level.
+
+All thirteen classes expose their verified guided progression groups, subclass timing, and nested feature choices. Those decisions are validated and saved in exported character JSON alongside the full level timeline.
+
+## Feat catalogue
+
+The Feats step contains 373 extracted feats from the supplied core, class, and clan rulebooks. It creates slots for the background feat option and class advancement levels 4, 8, 12, 16, and 19, while allowing explicit campaign or downtime slots for extra feats. Search and category filters cover General, Skill, Chakra, Ninjutsu, Taijutsu, Bukijutsu, Genjutsu, Critical, Clan, Class, and Archetype feats.
+
+The rules engine checks supported level, ability, proficiency, prior-feat, Clan, Class, Rare, and Archetype-downtime prerequisites. A locked feat remains visible with the reason it cannot currently be selected. Book text containing a bounded choice is converted into follow-up dropdowns; unbounded wording is marked for a table ruling rather than silently guessed. Feat-granted ability increases are reflected in the live ability ledger, and exported JSON includes readable feat names with every nested choice.
+
 ## Security boundary
 
 - `index.html`, `app.js`, and `styles.css` at the repository root are the single canonical frontend source. There is no second frontend copy hidden in another folder.
@@ -38,7 +50,9 @@ node tests\engine.test.mjs
 node tests\server.test.mjs
 ```
 
-The tests confirm bounded bootstrap/search data, model parity for representative calculations, server-approved exports, origin and host rejection, and that private/static traversal paths are unavailable.
+The tests confirm bounded bootstrap/search data, model parity for representative calculations, readable-name export/import round trips, server-approved exports, origin and host rejection, and that private/static traversal paths are unavailable.
+
+Character exports include readable class, subclass, clan, background, and equipment names alongside internal catalogue references. Imports resolve those names back to the current catalogue, so a changed extraction row ID cannot turn a Tachi into a visible item named `weapon-117`.
 
 ## Production frontend build
 

@@ -3,10 +3,13 @@ let ABILITIES = [];
 let CLASS_ASI_LEVELS = [];
 let PUPPET_UPGRADE_TIERS = [];
 let SUMMON_RANK_ORDER = [];
+let STANDARD_ARRAY = [];
+let ABILITY_POINT_COSTS = {};
+let ABILITY_POINT_BUDGET = 30;
 const state = { bootstrap: null, rules: null, character: null, view: null, activeStep: "identity", weaponCategories: new Set() };
 const summonFilters = new Map();
 const puppetFilters = new Map();
-const jutsuFilters = { disciplines: [], elements: [], hijutsu: false, clan: "", clanTouched: false };
+const jutsuFilters = { disciplines: [], elements: [], keywords: [], hijutsu: false, clan: "", clanTouched: false };
 let showLockedProficiencyActions = false;
 const JUTSU_DISCIPLINES = ["Ninjutsu", "Bukijutsu", "Genjutsu", "Taijutsu"];
 const JUTSU_ELEMENTS = ["Fire", "Wind", "Lightning", "Earth", "Water", "None"];
@@ -190,9 +193,130 @@ function find(collection, id) { return collection.find((entry) => entry.id === i
 function signed(value) { return value >= 0 ? `+${value}` : String(value); }
 function abilityLabel(ability) { return ability[0].toUpperCase() + ability.slice(1); }
 function abilityOptions(placeholder = "Choose ability") { return `<option value="">${placeholder}</option>${ABILITIES.map((ability) => `<option value="${ability}">${abilityLabel(ability)}</option>`).join("")}`; }
-function keywordList(value = "") { return value.split(/[,;/]/).map((item) => item.trim()).filter(Boolean); }
-function featureNeedsChoice(feature) { return /\b(choose|select|pick)\b/i.test(feature?.description || ""); }
+function keywordList(value = "") { return value.split(/[,;/]/).map((item) => item.trim().replace(/[.]+$/, "").replace(/\s+/g, " ")).filter(Boolean); }
+function featureNeedsChoice(feature) { return /\b(?:choose|select|pick)\s+(?:one|two|three|four|five|a|an|any\s+one|from)\b/i.test(feature?.description || ""); }
 function toggleFilter(collection, value) { const index = collection.indexOf(value); if (index >= 0) collection.splice(index, 1); else collection.push(value); }
+function progressionChoiceKey(group, level) { return `progression:${group.id}:${level}`; }
+function progressionDetailKey(group, level, choiceIndex, optionId, followUpId) { return `progression-detail:${group.id}:${level}:${choiceIndex}:${optionId}:${followUpId}`; }
+
+function progressionSelectionCount(selection) {
+  if (!selection.dynamicCountAbility) return Number(selection.count) || 0;
+  return Math.max(Number(selection.minimum) || 0, abilityModifier(state.character.abilities?.[selection.dynamicCountAbility]));
+}
+
+function progressionOptions(source = {}) {
+  if (!source.optionsSource) return source.options || [];
+  if (source.optionsSource.type.startsWith("proficient-")) {
+    const skills = state.rules.proficiencies.skills.filter((entry) => Number(state.view.derived.skills?.[entry.id]?.degree) > 0).map((entry) => ({ id: `skill:${entry.id}`, name: entry.name, description: "A skill in which this character is proficient.", ...(source.dynamicFollowUp ? { followUps: [source.dynamicFollowUp] } : {}) }));
+    const toolkitNames = [...new Set([...(state.view.derived.grantedToolkits || []).map((entry) => entry.name), ...(state.character.proficiencies.toolkits || []).filter((entry) => Number(entry.degree) > 0).map((entry) => entry.name)].filter(Boolean))];
+    const tools = toolkitNames.map((name) => ({ id: `tool:${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name, description: "A toolkit in which this character is proficient." }));
+    if (source.optionsSource.type === "proficient-skills") return skills;
+    if (source.optionsSource.type === "proficient-tools") return tools;
+    return [...skills, ...tools];
+  }
+  if (source.optionsSource.type !== "known-jutsu") return [];
+  const rankOrder = ["E-Rank", "D-Rank", "C-Rank", "B-Rank", "A-Rank", "S-Rank"];
+  return (state.character.jutsu || []).map((known) => find(state.rules.jutsu, known.id) || known).filter((entry) => {
+    if (source.optionsSource.rank && entry.rank !== source.optionsSource.rank) return false;
+    if (source.optionsSource.maxRank && rankOrder.indexOf(entry.rank) > rankOrder.indexOf(source.optionsSource.maxRank)) return false;
+    const keywords = keywordList(entry.keywords).map((value) => value.toLowerCase());
+    if (source.optionsSource.keyword && entry.keywords && !keywords.includes(source.optionsSource.keyword.toLowerCase())) return false;
+    if (source.optionsSource.excludeKeyword && keywords.includes(source.optionsSource.excludeKeyword.toLowerCase())) return false;
+    return true;
+  }).map((entry) => ({ id: entry.id, name: entry.name, description: `${entry.rank || "Unknown rank"}${entry.keywords ? ` · ${entry.keywords}` : ""}` }));
+}
+
+function selectedProgressionValues(group, selection) {
+  const raw = state.character.featureChoices[progressionChoiceKey(group, selection.level)];
+  return Array.isArray(raw) ? raw : raw ? [raw] : [];
+}
+
+function progressionOptionUnavailable(option, level = state.character.level) {
+  return (option.requiresSubclass && state.view.selection.subclass?.name !== option.requiresSubclass) || (option.forbidsCurrentSubclass && state.view.selection.subclass?.name === option.name) || (option.minLevel && Number(level) < Number(option.minLevel));
+}
+
+function progressionFollowUpMarkup(group, selection, choiceIndex, selectedOption, disabled) {
+  return (selectedOption.followUps || []).map((followUp) => {
+    const detailKey = progressionDetailKey(group, selection.level, choiceIndex, selectedOption.id, followUp.id);
+    const raw = state.character.featureChoices[detailKey];
+    const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    const usedByOtherSelections = new Set();
+    for (const otherSelection of group.selections || []) {
+      selectedProgressionValues(group, otherSelection).forEach((optionId, otherIndex) => {
+        if (optionId !== selectedOption.id || (otherSelection.level === selection.level && otherIndex === choiceIndex)) return;
+        const otherKey = progressionDetailKey(group, otherSelection.level, otherIndex, selectedOption.id, followUp.id);
+        const otherRaw = state.character.featureChoices[otherKey];
+        (Array.isArray(otherRaw) ? otherRaw : otherRaw ? [otherRaw] : []).filter(Boolean).forEach((value) => usedByOtherSelections.add(value));
+      });
+    }
+    const controls = Array.from({ length: followUp.count }, (_, followIndex) => {
+      const value = values[followIndex] || "";
+      const usedInCurrent = new Set(values.filter((entry, index) => entry && index !== followIndex));
+      const options = progressionOptions(followUp).map((entry) => {
+        const unavailable = (usedInCurrent.has(entry.id) || usedByOtherSelections.has(entry.id)) && entry.id !== value;
+        const suffix = entry.category ? ` — ${entry.category}` : "";
+        return `<option value="${escapeHtml(entry.id)}"${entry.id === value ? " selected" : ""}${unavailable ? " disabled" : ""}>${escapeHtml(entry.name + suffix)}</option>`;
+      }).join("");
+      return `<label><span>${escapeHtml(followUp.label)}${followUp.count > 1 ? ` ${followIndex + 1}` : ""}</span><select data-progression-detail="${encodeURIComponent(detailKey)}" data-progression-detail-index="${followIndex}"${disabled ? " disabled" : ""}><option value="">Choose an option</option>${options}</select></label>`;
+    }).join("");
+    const selectedDetails = values.map((value) => progressionOptions(followUp).find((entry) => entry.id === value)).filter(Boolean).map((entry) => `<div class="nested-choice-description"><strong>${escapeHtml(entry.name)}</strong>${entry.requirement ? `<span>Requires ${escapeHtml(entry.requirement)}</span>` : ""}<p>${escapeHtml(entry.description || "")}</p></div>`).join("");
+    return `<div class="choice-followup"><div class="choice-followup-heading"><span>Next choice</span><strong>${escapeHtml(followUp.label)}</strong></div><div class="guided-choice-fields">${controls}</div>${selectedDetails}</div>`;
+  }).join("");
+}
+
+function progressionChoiceMarkup(group, selection, disabled = false) {
+  const key = progressionChoiceKey(group, selection.level);
+  const chosen = selectedProgressionValues(group, selection);
+  const selectionCount = progressionSelectionCount(selection);
+  const groupOptions = progressionOptions(group);
+  const selectors = Array.from({ length: selectionCount }, (_, index) => {
+    const value = chosen[index] || "";
+    const selectedOption = groupOptions.find((entry) => entry.id === value);
+    const alreadyChosen = new Set();
+    for (const otherSelection of group.selections || []) selectedProgressionValues(group, otherSelection).forEach((id, otherIndex) => {
+      if (otherSelection.level !== selection.level || otherIndex !== index) alreadyChosen.add(id);
+    });
+    const options = groupOptions.map((entry) => {
+      const duplicate = alreadyChosen.has(entry.id) && !entry.allowRepeat && entry.id !== value;
+      const unavailable = progressionOptionUnavailable(entry, selection.level);
+      const suffix = entry.requiresSubclass ? ` — ${entry.requiresSubclass} only` : entry.minLevel ? ` — level ${entry.minLevel}+` : entry.slotCost > 1 ? ` — ${entry.slotCost} slots` : entry.allowRepeat ? " — repeatable" : "";
+      return `<option value="${escapeHtml(entry.id)}"${entry.id === value ? " selected" : ""}${duplicate || unavailable ? " disabled" : ""}>${escapeHtml(entry.name + suffix)}</option>`;
+    }).join("");
+    const detail = selectedOption ? `<div class="choice-description"><div class="choice-description-heading"><strong>${escapeHtml(selectedOption.name)}</strong><div>${selectedOption.minLevel ? `<span class="choice-tag">Level ${selectedOption.minLevel}+</span>` : ""}${selectedOption.slotCost > 1 ? `<span class="choice-tag">${selectedOption.slotCost} slots</span>` : ""}${selectedOption.allowRepeat ? '<span class="choice-tag">Repeatable</span>' : ""}${selectedOption.requiresSubclass ? `<span class="choice-tag">${escapeHtml(selectedOption.requiresSubclass)}</span>` : ""}</div></div><p>${escapeHtml(selectedOption.description || "Description pending verification.")}</p>${progressionFollowUpMarkup(group, selection, index, selectedOption, disabled)}</div>` : "";
+    const placeholder = group.optionsSource && !groupOptions.length ? (group.optionsSource.type === "known-jutsu" ? "Add qualifying jutsu in the Jutsu tab" : "Complete qualifying proficiencies first") : "Choose an option";
+    return `<div class="guided-choice-slot"><label><span>${selectionCount > 1 ? `${group.label} ${index + 1}` : group.label}</span><select data-progression-choice="${encodeURIComponent(key)}" data-progression-index="${index}"${disabled ? " disabled" : ""}><option value="">${placeholder}</option>${options}</select></label>${detail}</div>`;
+  }).join("");
+  const progress = selection.slotBudget ? `${chosen.filter(Boolean).reduce((total, id) => total + Number(groupOptions.find((entry) => entry.id === id)?.slotCost || 1), 0)}/${selection.slotBudget} slots` : `${chosen.filter(Boolean).length}/${selectionCount}`;
+  return `<section class="guided-choice${disabled ? " future-choice" : ""}"><header><div><span>${selection.slotBudget ? "Optional slot choices" : "Required choice"} · Level ${selection.level}</span><strong>${escapeHtml(group.featureName)}</strong></div><b>${progress}</b></header><p>${escapeHtml(group.help || "Choose from the options allowed by this feature.")}</p><div class="guided-choice-fields">${selectors}</div></section>`;
+}
+
+function bindProgressionChoiceControls(root = document) {
+  $$('[data-progression-choice]', root).forEach((control) => control.addEventListener("change", () => {
+    const key = decodeURIComponent(control.dataset.progressionChoice);
+    const values = Array.isArray(state.character.featureChoices[key]) ? [...state.character.featureChoices[key]] : [];
+    const choiceIndex = Number(control.dataset.progressionIndex);
+    const oldValue = values[choiceIndex];
+    values[choiceIndex] = control.value;
+    state.character.featureChoices[key] = values;
+    if (oldValue !== control.value) {
+      const [, groupId, level] = key.split(":");
+      const prefix = `progression-detail:${groupId}:${level}:${choiceIndex}:`;
+      for (const detailKey of Object.keys(state.character.featureChoices)) if (detailKey.startsWith(prefix)) delete state.character.featureChoices[detailKey];
+    }
+    if (key === "progression:hunter-lethal-precision:1") {
+      const group = find(state.view.selection.class?.progressionChoices || [], "hunter-lethal-precision");
+      state.character.featureChoices["1:Lethal Precision"] = group?.options.find((entry) => entry.id === values[0])?.name || "";
+    }
+    saveAndRender();
+  }));
+  $$('[data-progression-detail]', root).forEach((control) => control.addEventListener("change", () => {
+    const key = decodeURIComponent(control.dataset.progressionDetail);
+    const values = Array.isArray(state.character.featureChoices[key]) ? [...state.character.featureChoices[key]] : [];
+    values[Number(control.dataset.progressionDetailIndex)] = control.value;
+    state.character.featureChoices[key] = values;
+    saveAndRender();
+  }));
+}
 
 async function loadRules() {
   state.bootstrap = await api("/api/v1/bootstrap");
@@ -200,6 +324,9 @@ async function loadRules() {
   CLASS_ASI_LEVELS = state.bootstrap.constants.classAsiLevels;
   PUPPET_UPGRADE_TIERS = state.bootstrap.constants.puppetUpgradeTiers;
   SUMMON_RANK_ORDER = state.bootstrap.constants.summonRanks;
+  STANDARD_ARRAY = state.bootstrap.constants.standardArray;
+  ABILITY_POINT_COSTS = state.bootstrap.constants.abilityPointCosts;
+  ABILITY_POINT_BUDGET = state.bootstrap.constants.abilityPointBudget;
   state.rules = {
     source: state.bootstrap.source,
     classes: state.bootstrap.options.classes,
@@ -210,6 +337,7 @@ async function loadRules() {
     equipment: { weapons: [], armor: [] },
     summons: { tribes: state.bootstrap.options.summonTribes, ...state.bootstrap.summons },
     proficiencies: state.bootstrap.proficiencies,
+    trainingOptions: state.bootstrap.trainingOptions,
   };
   const saved = localStorage.getItem(STORAGE_KEY);
   state.character = emptyCharacter();
@@ -233,11 +361,12 @@ function initializeControls() {
   $("#clan-primary").innerHTML = abilityOptions();
   $("#clan-secondary").innerHTML = abilityOptions();
   $("#background-ability").innerHTML = abilityOptions();
+  $("#toolkit-to-add").innerHTML = `<option value="">Choose toolkit</option>${state.rules.trainingOptions.ninjaTools.map((name) => `<option>${escapeHtml(name)}</option>`).join("")}`;
+  $("#jutsu-keyword-options").innerHTML = state.bootstrap.filters.jutsuKeywords.map((keyword) => `<label><input type="checkbox" data-jutsu-keyword="${escapeHtml(keyword)}"><span>${escapeHtml(keyword)}</span></label>`).join("");
   $("#summon-tribe").innerHTML = optionMarkup(state.rules.summons.tribes, "Choose summon tribe");
   const puppetTechniques = state.rules.subclasses.filter((entry) => entry.className === "Puppet-Master");
   $("#puppet-technique").innerHTML = `<option value="">Choose puppet technique</option>${puppetTechniques.map((entry) => `<option>${escapeHtml(entry.name.replaceAll("-", " ").replace(" ~ ", " - "))}</option>`).join("")}<option>Custom / archetype</option>`;
   $("#puppet-upgrade-options").innerHTML = PUPPET_UPGRADE_SUGGESTIONS.map((name) => `<option value="${escapeHtml(name)}"></option>`).join("");
-  $("#ability-grid").innerHTML = ABILITIES.map((ability) => `<div class="ability-card"><label for="ability-${ability}">${abilityLabel(ability)} starting score</label><div class="ability-row"><input id="ability-${ability}" type="number" min="1" max="30" data-ability="${ability}"><div><span class="final-score" data-final-score="${ability}">10</span><span class="modifier" data-modifier="${ability}">+0</span></div></div><div class="score-ledger" data-score-ledger="${ability}"></div><label class="manual-bonus">Other / feat adjustment<input type="number" min="-10" max="10" value="0" data-manual-ability="${ability}"></label></div>`).join("");
   bindEvents();
 }
 
@@ -255,17 +384,27 @@ function bindEvents() {
     if (field === "classId") state.character.subclassId = "";
     scheduleSave();
   }));
-  $$('[data-ability]').forEach((control) => control.addEventListener("input", () => {
-    state.character.baseAbilities[control.dataset.ability] = Math.min(30, Math.max(1, Number(control.value) || 10));
-    scheduleSave();
-  }));
   $$('[data-bonus-field]').forEach((control) => control.addEventListener("change", () => {
     state.character.abilityIncreases[control.dataset.bonusField] = control.value;
     scheduleSave();
   }));
-  $$('[data-manual-ability]').forEach((control) => control.addEventListener("input", () => {
-    state.character.abilityIncreases.manual[control.dataset.manualAbility] = Math.min(10, Math.max(-10, Number(control.value) || 0));
-    scheduleSave();
+  $("#ability-method").addEventListener("change", (event) => {
+    const method = event.currentTarget.value;
+    state.character.abilityMethod = method;
+    if (method === "pointBuy") {
+      const scores = ABILITIES.map((ability) => Number(state.character.baseAbilities[ability]));
+      const valid = scores.every((score) => Object.hasOwn(ABILITY_POINT_COSTS, score)) && scores.reduce((total, score) => total + ABILITY_POINT_COSTS[score], 0) <= ABILITY_POINT_BUDGET;
+      if (!valid) for (const ability of ABILITIES) state.character.baseAbilities[ability] = 8;
+    }
+    if (method === "standardArray") {
+      const scores = ABILITIES.map((ability) => Number(state.character.baseAbilities[ability])).sort((a, b) => b - a);
+      if (scores.some((score, index) => score !== STANDARD_ARRAY[index])) ABILITIES.forEach((ability, index) => { state.character.baseAbilities[ability] = STANDARD_ARRAY[index]; });
+    }
+    saveAndRender();
+  });
+  $$('[data-level-adjust]').forEach((button) => button.addEventListener("click", () => {
+    state.character.level = Math.min(20, Math.max(1, Number(state.character.level) + Number(button.dataset.levelAdjust)));
+    saveAndRender();
   }));
   $$('.nav-step').forEach((button) => button.addEventListener("click", () => showStep(button.dataset.step)));
   $$('[data-proficiency-jump]').forEach((button) => button.addEventListener("click", () => {
@@ -277,11 +416,18 @@ function bindEvents() {
     renderProficiencies();
   });
   $("#add-toolkit").addEventListener("click", () => {
-    state.character.proficiencies.toolkits.push({ id: crypto.randomUUID(), name: "", degree: 1, source: "" });
+    const name = $("#toolkit-to-add").value;
+    if (!name || state.character.proficiencies.toolkits.some((entry) => entry.name === name)) return;
+    state.character.proficiencies.toolkits.push({ id: crypto.randomUUID(), name, degree: 1, source: "" });
+    $("#toolkit-to-add").value = "";
     saveAndRender();
   });
   $("#jutsu-search").addEventListener("input", renderJutsuLibrary);
   $("#jutsu-rank").addEventListener("change", renderJutsuLibrary);
+  $$('[data-jutsu-keyword]').forEach((control) => control.addEventListener("change", () => {
+    toggleFilter(jutsuFilters.keywords, control.dataset.jutsuKeyword);
+    renderJutsuLibrary();
+  }));
   $$('[data-jutsu-discipline]').forEach((button) => button.addEventListener("click", () => { toggleFilter(jutsuFilters.disciplines, button.dataset.jutsuDiscipline); renderJutsuLibrary(); }));
   $$('[data-jutsu-element]').forEach((button) => button.addEventListener("click", () => { toggleFilter(jutsuFilters.elements, button.dataset.jutsuElement); renderJutsuLibrary(); }));
   $("#jutsu-hijutsu").addEventListener("click", () => { jutsuFilters.hijutsu = !jutsuFilters.hijutsu; renderJutsuLibrary(); });
@@ -342,9 +488,13 @@ function showStep(step) {
   state.activeStep = step;
   $$('.nav-step').forEach((button) => button.classList.toggle("active", button.dataset.step === step));
   $$('.step-panel').forEach((panel) => panel.classList.toggle("active", panel.dataset.panel === step));
-  const titles = { identity:["Shape your shinobi","Start with the person behind the techniques."], build:["Choose the path","Clan, class, subclass, and background establish the build."], abilities:["Set the foundations","Record the six scores and see their modifiers."], proficiencies:["Know your capabilities","Training determines both your bonus and the skill actions available to you."], jutsu:["Build the arsenal","Search the complete sheet catalogue and track when each jutsu was learned."], equipment:["Pack for the mission","Resolve starting choices and maintain a usable inventory."], summons:["Call trusted allies","Build a roster of creatures bound to your shinobi."], puppets:["Engineer the arsenal","Craft Puppet Tools with their own chassis, upgrades, seals, weapons, and techniques."], timeline:["See every level","Class, clan, subclass, jutsu, and personal choices in one history."], review:["Ready to share","Validate the build and export a portable character file."] };
+  const titles = { identity:["Shape your shinobi","Start with the person behind the techniques."], build:["Choose the path","Build the class one level at a time and resolve each unlocked choice."], abilities:["Set the foundations","Record the six scores and see their modifiers."], proficiencies:["Know your capabilities","Training determines both your bonus and the skill actions available to you."], jutsu:["Build the arsenal","Search the complete sheet catalogue and track when each jutsu was learned."], equipment:["Pack for the mission","Resolve starting choices and maintain a usable inventory."], summons:["Call trusted allies","Build a roster of creatures bound to your shinobi."], puppets:["Engineer the arsenal","Craft Puppet Tools with their own chassis, upgrades, seals, weapons, and techniques."], timeline:["See every level","Inspect your current build and every future feature through level 20."], review:["Ready to share","Validate the build and export a portable character file."] };
   $("#page-title").textContent = titles[step][0];
   $("#page-subtitle").textContent = titles[step][1];
+  const steps = $$('.nav-step');
+  const position = Math.max(0, steps.findIndex((button) => button.dataset.step === step));
+  $("#builder-progress-label").textContent = `Step ${position + 1} of ${steps.length}`;
+  $("#builder-progress-fill").style.width = `${((position + 1) / steps.length) * 100}%`;
   renderStep(step);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -359,12 +509,57 @@ function renderStep(step) {
   if (step === "review") renderReview();
 }
 
+function renderAbilityBuilder() {
+  const method = state.character.abilityMethod || "manual";
+  $("#ability-method").value = method;
+  const methodCopy = {
+    manual: ["Manual entry", "Enter any GM-approved starting scores from 1 to 30."],
+    pointBuy: ["Naruto 5e Point Buy", `Spend up to ${ABILITY_POINT_BUDGET} points. Scores range from 8 to 15 before bonuses.`],
+    standardArray: ["Naruto 5e Standard Array", `Assign ${STANDARD_ARRAY.join(", ")} exactly once each. Choosing an assigned score swaps the two abilities.`],
+  }[method];
+  $("#ability-method-title").textContent = methodCopy[0];
+  $("#ability-method-help").textContent = methodCopy[1];
+  const spent = ABILITIES.reduce((total, ability) => total + (ABILITY_POINT_COSTS[state.character.baseAbilities[ability]] ?? 0), 0);
+  const remaining = ABILITY_POINT_BUDGET - spent;
+  $("#ability-method-status").classList.toggle("invalid", method === "pointBuy" && remaining < 0);
+  $("#ability-method-status").innerHTML = method === "pointBuy"
+    ? `<span>Points remaining</span><strong>${remaining}</strong><small>${spent} of ${ABILITY_POINT_BUDGET} spent</small>`
+    : method === "standardArray" ? `<span>Array</span><strong>${STANDARD_ARRAY.join(" · ")}</strong><small>Each value can be assigned once.</small>`
+      : `<span>Method</span><strong>GM approved</strong><small>No automatic budget restriction.</small>`;
+  $("#ability-grid").innerHTML = ABILITIES.map((ability) => {
+    const current = Number(state.character.baseAbilities[ability]);
+    let scoreControl;
+    if (method === "pointBuy") {
+      const availableForAbility = ABILITY_POINT_BUDGET - (spent - (ABILITY_POINT_COSTS[current] ?? 0));
+      scoreControl = `<select id="ability-${ability}" data-ability="${ability}">${Object.entries(ABILITY_POINT_COSTS).map(([score, cost]) => `<option value="${score}"${current === Number(score) ? " selected" : ""}${Number(cost) > availableForAbility && current !== Number(score) ? " disabled" : ""}>${score} — ${cost} point${Number(cost) === 1 ? "" : "s"}</option>`).join("")}</select>`;
+    } else if (method === "standardArray") {
+      scoreControl = `<select id="ability-${ability}" data-ability="${ability}">${STANDARD_ARRAY.map((score) => `<option value="${score}"${current === score ? " selected" : ""}>${score}</option>`).join("")}</select>`;
+    } else scoreControl = `<input id="ability-${ability}" type="number" min="1" max="30" value="${current}" data-ability="${ability}">`;
+    return `<div class="ability-card"><label for="ability-${ability}">${abilityLabel(ability)} starting score</label><div class="ability-row">${scoreControl}<div><span class="final-score" data-final-score="${ability}">10</span><span class="modifier" data-modifier="${ability}">+0</span></div></div><div class="score-ledger" data-score-ledger="${ability}"></div><label class="manual-bonus">Other / feat adjustment<input type="number" min="-10" max="10" value="${state.character.abilityIncreases.manual[ability] || 0}" data-manual-ability="${ability}"></label></div>`;
+  }).join("");
+  $$('[data-ability]').forEach((control) => control.addEventListener(method === "manual" ? "input" : "change", () => {
+    const fallback = method === "pointBuy" ? 8 : 10;
+    const ability = control.dataset.ability;
+    const previous = Number(state.character.baseAbilities[ability]);
+    const next = Math.min(30, Math.max(1, Number(control.value) || fallback));
+    if (method === "standardArray") {
+      const swapAbility = ABILITIES.find((other) => other !== ability && Number(state.character.baseAbilities[other]) === next);
+      if (swapAbility) state.character.baseAbilities[swapAbility] = previous;
+    }
+    state.character.baseAbilities[ability] = next;
+    scheduleSave();
+  }));
+  $$('[data-manual-ability]').forEach((control) => control.addEventListener("input", () => {
+    state.character.abilityIncreases.manual[control.dataset.manualAbility] = Math.min(10, Math.max(-10, Number(control.value) || 0));
+    scheduleSave();
+  }));
+}
+
 function renderAll() {
   if (!state.rules) return;
   $$('[data-field]').forEach((control) => { control.value = state.character[control.dataset.field] ?? ""; });
-  $$('[data-ability]').forEach((control) => { control.value = state.character.baseAbilities[control.dataset.ability]; });
   $$('[data-bonus-field]').forEach((control) => { control.value = state.character.abilityIncreases[control.dataset.bonusField] ?? ""; });
-  $$('[data-manual-ability]').forEach((control) => { control.value = state.character.abilityIncreases.manual[control.dataset.manualAbility] || 0; });
+  renderAbilityBuilder();
   const cls = find(state.rules.classes, state.character.classId);
   const clan = find(state.rules.clans, state.character.clanId);
   if (!jutsuFilters.clanTouched && clan?.name && [...$("#jutsu-hijutsu-clan").options].some((option) => option.value === clan.name)) jutsuFilters.clan = clan.name;
@@ -372,6 +567,7 @@ function renderAll() {
   $("#badge-initial").textContent = (state.character.name.trim()[0] || "?").toUpperCase();
   $("#sidebar-build").textContent = [clan?.name, cls?.name].filter(Boolean).join(" · ") || "Choose a clan and class";
   $("#sidebar-level").textContent = state.character.level;
+  $("#build-level-display").textContent = state.character.level;
   $("#level-value").textContent = state.character.level;
   $("#proficiency-value").textContent = signed(proficiencyBonus(state.character.level));
   $("#jutsu-count").textContent = state.character.jutsu.length;
@@ -446,6 +642,7 @@ function renderCapabilityTraining() {
   const cls = find(state.rules.classes, state.character.classId);
   const training = cls?.combatProficiencies;
   const extras = state.character.capabilities.trainingExtras;
+  const selections = state.character.capabilities.trainingSelections;
   const trainingTypes = [
     ["armor", "Armor", "Protection the class is trained to wear"],
     ["weapons", "Weapons", "Weapon groups and specific weapons"],
@@ -454,7 +651,13 @@ function renderCapabilityTraining() {
   ];
   const trainingCards = trainingTypes.map(([key, label, description]) => {
     const values = training?.[key] || [];
-    return `<article class="training-card"><header><span>${escapeHtml(label)}</span><small>${escapeHtml(description)}</small></header><div class="training-chip-list">${values.length ? values.map((value) => `<strong>${escapeHtml(value)}<em>Class</em></strong>`).join("") : `<span class="training-none">${training ? "None granted" : "Class source unavailable"}</span>`}</div><label>Additional grants<input data-training-extra="${key}" value="${escapeHtml(extras[key] || "")}" placeholder="Feat, clan, equipment…"></label></article>`;
+    const manual = selections[key] || [];
+    const available = (state.rules.trainingOptions[key] || []).filter((value) => !values.includes(value) && !manual.includes(value));
+    const chips = [
+      ...values.map((value) => `<strong>${escapeHtml(value)}<em>Class</em></strong>`),
+      ...manual.map((value, index) => `<strong>${escapeHtml(value)}<em>Added</em><button type="button" data-remove-training="${key}:${index}" aria-label="Remove ${escapeHtml(value)}">×</button></strong>`),
+    ].join("");
+    return `<article class="training-card"><header><span>${escapeHtml(label)}</span><small>${escapeHtml(description)}</small></header><div class="training-chip-list">${chips || `<span class="training-none">${training ? "None granted" : "Class source unavailable"}</span>`}</div><div class="training-adder"><select data-training-select="${key}" aria-label="Add ${escapeHtml(label.toLowerCase())}"><option value="">Choose ${escapeHtml(label.toLowerCase())}</option>${available.map((value) => `<option>${escapeHtml(value)}</option>`).join("")}</select><button type="button" class="button ghost" data-add-training="${key}">Add</button></div><label>Why does the character have the added training?<input data-training-extra="${key}" value="${escapeHtml(extras[key] || "")}" placeholder="Feat, clan feature, downtime training…"></label></article>`;
   }).join("");
   const releaseGroups = CAPABILITY_GROUPS.map((group) => `<section class="release-group"><div class="release-group-heading"><div><strong>${escapeHtml(group.title)}</strong><small>${escapeHtml(group.description)}</small></div></div><div class="release-grid">${group.entries.map((capability) => {
     const status = capabilityStatus(capability);
@@ -466,6 +669,18 @@ function renderCapabilityTraining() {
     control.addEventListener("input", () => { extras[control.dataset.trainingExtra] = control.value; persistCharacter(); });
     control.addEventListener("change", saveAndRender);
   });
+  $$('[data-add-training]').forEach((button) => button.addEventListener("click", () => {
+    const key = button.dataset.addTraining;
+    const select = $(`[data-training-select="${key}"]`);
+    if (!select.value || selections[key].includes(select.value)) return;
+    selections[key].push(select.value);
+    saveAndRender();
+  }));
+  $$('[data-remove-training]').forEach((button) => button.addEventListener("click", () => {
+    const [key, index] = button.dataset.removeTraining.split(":");
+    selections[key].splice(Number(index), 1);
+    saveAndRender();
+  }));
   $$('[data-capability-toggle]').forEach((button) => button.addEventListener("click", () => {
     const capability = CAPABILITY_ENTRIES.find((entry) => entry.id === button.dataset.capabilityToggle);
     const status = capabilityStatus(capability);
@@ -514,7 +729,7 @@ function renderProficiencyGrantGuide() {
     toolkitMarkup = `<div class="grant-row"><span>Choose toolkit</span><div class="grant-selectors"><label>Background toolkit<select data-grant-toolkit="${key}"><option value="">Choose toolkit</option>${bgGrants.toolkitOptions.map((name) => `<option${choices[key]?.[0] === name ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label></div></div>`;
   } else if (bgGrants?.toolkitChoice) {
     const key = `background-toolkit-${background.id}`;
-    toolkitMarkup = `<div class="grant-row"><span>Toolkit of your choice</span><div class="grant-selectors"><label>Background toolkit<input data-grant-toolkit="${key}" value="${escapeHtml(choices[key]?.[0] || "")}" placeholder="Enter toolkit name"></label></div></div>`;
+    toolkitMarkup = `<div class="grant-row"><span>Toolkit of your choice</span><div class="grant-selectors"><label>Background toolkit<select data-grant-toolkit="${key}"><option value="">Choose toolkit</option>${state.rules.trainingOptions.ninjaTools.map((name) => `<option${choices[key]?.[0] === name ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label></div></div>`;
   }
   const overlaps = proficiencyGrantOverlaps(state.character, state.rules);
   const grantedIds = new Set(Object.keys(activeProficiencyGrants(state.character, state.rules)));
@@ -537,10 +752,9 @@ function renderToolkits() {
   const manual = toolkits.length ? toolkits.map((toolkit, index) => {
     const degreeBonus = proficiencyDegreeBonus(state.character.level, toolkit.degree);
     const overCap = Math.max(0, Number(toolkit.degree) - 1) > masteryRankCap(state.character.level);
-    return `<div class="toolkit-row${overCap ? " over-cap" : ""}"><label>Toolkit name<input data-toolkit-name="${index}" value="${escapeHtml(toolkit.name)}" placeholder="e.g. Poison Kit"></label><label>Training degree<select data-toolkit-degree="${index}">${proficiencyDegreeOptions(toolkit.degree)}</select></label><label>Source<input data-toolkit-source="${index}" value="${escapeHtml(toolkit.source)}" placeholder="Class, background, feat…"></label><div class="toolkit-bonus"><span>Training bonus</span><strong>${signed(degreeBonus)}</strong></div><button type="button" class="icon-button" data-remove-toolkit="${index}" aria-label="Remove toolkit">×</button></div>`;
+    return `<div class="toolkit-row${overCap ? " over-cap" : ""}"><div><span>Toolkit</span><strong>${escapeHtml(toolkit.name)}</strong></div><label>Training degree<select data-toolkit-degree="${index}">${proficiencyDegreeOptions(toolkit.degree)}</select></label><label>Why do you have it?<input data-toolkit-source="${index}" value="${escapeHtml(toolkit.source)}" placeholder="Class, background, feat…"></label><div class="toolkit-bonus"><span>Training bonus</span><strong>${signed(degreeBonus)}</strong></div><button type="button" class="icon-button" data-remove-toolkit="${index}" aria-label="Remove toolkit">×</button></div>`;
   }).join("") : "";
   $("#toolkit-list").innerHTML = automatic + manual || '<p class="muted-copy">No toolkit proficiencies recorded.</p>';
-  $$('[data-toolkit-name]').forEach((control) => control.addEventListener("change", () => { toolkits[Number(control.dataset.toolkitName)].name = control.value; saveAndRender(); }));
   $$('[data-toolkit-degree]').forEach((control) => control.addEventListener("change", () => { toolkits[Number(control.dataset.toolkitDegree)].degree = Number(control.value) || 0; saveAndRender(); }));
   $$('[data-toolkit-source]').forEach((control) => control.addEventListener("change", () => { toolkits[Number(control.dataset.toolkitSource)].source = control.value; saveAndRender(); }));
   $$('[data-remove-toolkit]').forEach((button) => button.addEventListener("click", () => { toolkits.splice(Number(button.dataset.removeToolkit), 1); saveAndRender(); }));
@@ -561,7 +775,7 @@ function renderEquipment() {
     }).join("");
     const toolkitChoices = Array.from({ length: toolkitCount }, (_, toolkitIndex) => {
       const detailIndex = requirements.length + toolkitIndex;
-      return `<label class="nested-choice"><span>Toolkit ${toolkitIndex + 1}</span><input data-starting-toolkit="${group.id}:${detailIndex}" value="${escapeHtml(details[detailIndex] || "")}" placeholder="e.g. Poison Kit"></label>`;
+      return `<label class="nested-choice"><span>Toolkit ${toolkitIndex + 1}</span><select data-starting-toolkit="${group.id}:${detailIndex}"><option value="">Choose toolkit</option>${state.rules.trainingOptions.ninjaTools.map((name) => `<option${details[detailIndex] === name ? " selected" : ""}>${escapeHtml(name)}</option>`).join("")}</select></label>`;
     }).join("");
     const nested = weaponChoices + toolkitChoices;
     return `<div class="starting-choice"><label><span>Package ${index + 1}</span><select data-starting-group="${group.id}"><option value="">Choose one</option>${group.choices.map((entry) => `<option${entry === choice ? " selected" : ""}>${escapeHtml(entry)}</option>`).join("")}</select></label>${nested}</div>`;
@@ -843,8 +1057,19 @@ function renderBuildSummary() {
   const cls = find(state.rules.classes, state.character.classId);
   const clan = find(state.rules.clans, state.character.clanId);
   const background = find(state.rules.backgrounds, state.character.backgroundId);
-  if (!cls && !clan && !background) { $("#build-summary").innerHTML = "Your chosen build details will appear here."; return; }
-  $("#build-summary").innerHTML = `<strong>${escapeHtml([clan?.name, cls?.name].filter(Boolean).join(" ") || "Build in progress")}</strong><br>${cls ? `Hit die d${escapeHtml(cls.hitDie || "?")} · Chakra die d${escapeHtml(cls.chakraDie || "?")}` : ""}${background?.feature ? `<br>Background feature: ${escapeHtml(background.feature.name)}` : ""}`;
+  if (!cls && !clan && !background) { $("#build-summary").innerHTML = "Your chosen build details will appear here."; $("#build-progression").innerHTML = ""; return; }
+  const timeline = levelTimeline();
+  const current = timeline.find((entry) => entry.level === Number(state.character.level));
+  const next = timeline.find((entry) => entry.level === Number(state.character.level) + 1);
+  const currentNames = [...(current?.classFeatures || []), ...(current?.subclassFeatures || []), ...(current?.clanFeatures || [])].map((feature) => feature.name);
+  const nextNames = [...(next?.classFeatures || []), ...(next?.subclassFeatures || []), ...(next?.clanFeatures || [])].map((feature) => feature.name);
+  $("#build-summary").innerHTML = `<div class="class-summary-heading"><div><span>Current build</span><strong>${escapeHtml([clan?.name, cls?.name].filter(Boolean).join(" ") || "Build in progress")}</strong>${state.view.selection.subclass ? `<small>${escapeHtml(state.view.selection.subclass.name)}</small>` : ""}</div>${cls ? `<div class="class-dice"><span>d${escapeHtml(cls.hitDie || "?")}<small>Hit die</small></span><span>d${escapeHtml(cls.chakraDie || "?")}<small>Chakra die</small></span></div>` : ""}</div><div class="class-level-snapshot"><div><span>Level ${state.character.level} grants</span><strong>${escapeHtml(currentNames.join(" · ") || "No recorded automatic feature")}</strong></div><div><span>${next ? `At level ${next.level}` : "Maximum level"}</span><strong>${escapeHtml(nextNames.join(" · ") || (next ? "No recorded automatic feature" : "Level 20 reached"))}</strong></div></div>${background?.feature ? `<p>Background feature: <strong>${escapeHtml(background.feature.name)}</strong></p>` : ""}`;
+  const reachedChoices = (cls?.progressionChoices || []).flatMap((group) => group.selections.filter((selection) => selection.level <= state.character.level).map((selection) => ({ group, selection })));
+  const futureChoiceCount = (cls?.progressionChoices || []).flatMap((group) => group.selections || []).filter((selection) => selection.level > state.character.level).length;
+  const emptyChoiceMessage = futureChoiceCount ? `No guided choices are due at level ${state.character.level}. ${futureChoiceCount} future choice${futureChoiceCount === 1 ? " is" : "s are"} available in the full timeline.` : "This class has no additional structured choices at this level.";
+  $("#build-progression").innerHTML = cls ? `<div class="progression-heading"><div><span>Guided advancement</span><h4>Class choices through level ${state.character.level}</h4></div><button type="button" class="button ghost" data-open-timeline>View all 20 levels</button></div>${reachedChoices.map(({ group, selection }) => progressionChoiceMarkup(group, selection)).join("") || `<p class="muted-copy">${escapeHtml(emptyChoiceMessage)}</p>`}` : "";
+  bindProgressionChoiceControls($("#build-progression"));
+  $("[data-open-timeline]", $("#build-progression"))?.addEventListener("click", () => showStep("timeline"));
 }
 
 function renderJutsuCastingStats() {
@@ -869,6 +1094,8 @@ async function renderJutsuLibrary() {
   const rank = $("#jutsu-rank").value;
   $$('[data-jutsu-discipline]').forEach((button) => button.classList.toggle("active", jutsuFilters.disciplines.includes(button.dataset.jutsuDiscipline)));
   $$('[data-jutsu-element]').forEach((button) => button.classList.toggle("active", jutsuFilters.elements.includes(button.dataset.jutsuElement)));
+  $$('[data-jutsu-keyword]').forEach((control) => { control.checked = jutsuFilters.keywords.includes(control.dataset.jutsuKeyword); });
+  $("#jutsu-keyword-summary").textContent = jutsuFilters.keywords.length ? `${jutsuFilters.keywords.length} selected` : "Any keyword";
   $("#jutsu-hijutsu").classList.toggle("active", jutsuFilters.hijutsu);
   $("#jutsu-hijutsu-clan").disabled = !jutsuFilters.hijutsu;
   $("#jutsu-hijutsu-clan").value = jutsuFilters.clan;
@@ -876,7 +1103,7 @@ async function renderJutsuLibrary() {
   $("#jutsu-results").innerHTML = '<p class="muted-copy">Searching the private catalogue…</p>';
   let response;
   try {
-    response = await api("/api/v1/jutsu/search", { query, rank, disciplines: jutsuFilters.disciplines, elements: jutsuFilters.elements, hijutsu: jutsuFilters.hijutsu, clan: jutsuFilters.clan, limit: 50 });
+    response = await api("/api/v1/jutsu/search", { query, rank, disciplines: jutsuFilters.disciplines, elements: jutsuFilters.elements, keywords: jutsuFilters.keywords, hijutsu: jutsuFilters.hijutsu, clan: jutsuFilters.clan, limit: 50 });
   } catch (error) {
     if (sequence === jutsuSearchSequence) $("#jutsu-results").innerHTML = `<p class="muted-copy">${escapeHtml(error.message)}</p>`;
     return;
@@ -899,7 +1126,7 @@ function renderSelectedJutsu() {
 }
 
 function renderTimeline() {
-  $("#timeline").innerHTML = levelTimeline(state.character, state.rules).map((entry) => {
+  $("#timeline").innerHTML = levelTimeline().map((entry) => {
     const allFeatures = [...entry.classFeatures, ...entry.subclassFeatures, ...entry.clanFeatures];
     const tags = [
       ...entry.classFeatures.map((feature) => `<span class="tag" title="${escapeHtml(feature.description)}">${escapeHtml(feature.name)}</span>`),
@@ -907,9 +1134,16 @@ function renderTimeline() {
       ...entry.clanFeatures.map((feature) => `<span class="tag clan">${escapeHtml(feature.name)}</span>`),
       ...entry.jutsu.map((jutsu) => `<span class="tag jutsu">${escapeHtml(jutsu.name)}</span>`),
     ].join("");
-    const decisions = allFeatures.filter(featureNeedsChoice).map((feature) => { const key = `${entry.level}:${feature.name}`; return `<label class="feature-choice"><span>${escapeHtml(feature.name)} decision</span><input data-feature-choice="${encodeURIComponent(key)}" value="${escapeHtml(state.character.featureChoices[key] || "")}" placeholder="Record the selected option…"></label>`; }).join("");
-    return `<article class="level-row"><div class="level-number">Level<strong>${entry.level}</strong>PB ${signed(entry.proficiency)}</div><div class="level-content"><div class="feature-tags">${tags || '<span class="tag">No automatic features recorded</span>'}</div>${decisions ? `<div class="feature-decisions">${decisions}</div>` : ""}<textarea data-level-note="${entry.level}" placeholder="Record feat choices, ASIs, optional features, training, or other decisions…">${escapeHtml(entry.choices)}</textarea></div></article>`;
+    const structuredNames = new Set(entry.progressionChoices.map((choice) => choice.featureName));
+    const decisions = allFeatures.filter((feature) => featureNeedsChoice(feature) && ![...structuredNames].some((name) => feature.name.startsWith(name))).map((feature) => { const key = `${entry.level}:${feature.name}`; return `<label class="feature-choice"><span>${escapeHtml(feature.name)} decision</span><input data-feature-choice="${encodeURIComponent(key)}" value="${escapeHtml(state.character.featureChoices[key] || "")}" placeholder="Record the selected option…"${entry.attained ? "" : " disabled"}></label>`; }).join("");
+    const structured = entry.progressionChoices.map((group) => progressionChoiceMarkup(group, group.selection, !entry.attained)).join("");
+    const featureDetails = allFeatures.map((feature) => `<details class="feature-detail"><summary><span>${escapeHtml(feature.type || "Feature")}</span>${escapeHtml(feature.name)}</summary><p>${escapeHtml(feature.description || "Full rules text has not yet been verified in the Forge catalogue.")}</p>${feature.action && feature.action !== "None" ? `<small>Action: ${escapeHtml(feature.action)}</small>` : ""}</details>`).join("");
+    const subclassChoice = state.view.selection.class?.subclassLevel === entry.level ? `<label class="timeline-subclass"><span>Subclass choice</span><select data-inline-subclass${entry.attained ? "" : " disabled"}>${optionMarkup(state.rules.subclasses.filter((item) => item.className === state.view.selection.class.name), "Choose subclass")}</select></label>` : "";
+    return `<article class="level-row${entry.attained ? " attained" : " future"}${entry.level === state.character.level ? " current" : ""}"><div class="level-number">${entry.attained ? "Level" : "Preview"}<strong>${entry.level}</strong>PB ${signed(entry.proficiency)}</div><div class="level-content"><header class="level-heading"><div><span>${entry.level === state.character.level ? "Current level" : entry.attained ? "Completed level" : "Future level"}</span><strong>${allFeatures.length} feature${allFeatures.length === 1 ? "" : "s"}${entry.progressionChoices.length ? ` · ${entry.progressionChoices.length} guided choice${entry.progressionChoices.length === 1 ? "" : "s"}` : ""}</strong></div>${entry.attained ? "" : `<button type="button" class="button ghost compact-button" data-set-level="${entry.level}">Set level ${entry.level}</button>`}</header><div class="feature-tags">${tags || '<span class="tag">No automatic features recorded</span>'}</div>${featureDetails ? `<div class="feature-detail-list">${featureDetails}</div>` : ""}${subclassChoice}${structured}${decisions ? `<div class="feature-decisions">${decisions}</div>` : ""}<label class="level-notes"><span>Level notes</span><textarea data-level-note="${entry.level}" placeholder="Record feat choices, ASIs, optional features, training, or other decisions…"${entry.attained ? "" : " disabled"}>${escapeHtml(entry.choices)}</textarea></label></div></article>`;
   }).join("");
+  $$('[data-inline-subclass]').forEach((control) => { control.value = state.character.subclassId; control.addEventListener("change", () => { state.character.subclassId = control.value; saveAndRender(); }); });
+  $$('[data-set-level]').forEach((button) => button.addEventListener("click", () => { state.character.level = Number(button.dataset.setLevel); saveAndRender(); }));
+  bindProgressionChoiceControls($("#timeline"));
   $$('[data-feature-choice]').forEach((field) => field.addEventListener("change", () => { state.character.featureChoices[decodeURIComponent(field.dataset.featureChoice)] = field.value; saveAndRender(); }));
   $$('[data-level-note]').forEach((field) => field.addEventListener("change", () => { state.character.levelChoices[field.dataset.levelNote] = field.value; saveAndRender(); }));
 }

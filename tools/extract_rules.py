@@ -140,7 +140,7 @@ def choose_skills(source: str, count: int, skills: list[str], label: str | None 
 
 CLASS_PROFICIENCY_GRANTS = {
     "Genjutsu-Specialist": [fixed_skills("class-genjutsu", "illusions"), choose_skills("class-genjutsu", 3, ["chakra-control", "deception", "history", "insight", "intimidation", "investigation", "perception", "persuasion", "stealth"])],
-    "Hunter-Nin": [fixed_skills("class-hunter", "stealth"), choose_skills("class-hunter", 3, ALL_SKILL_IDS, "Choose three other skills")],
+    "Hunter-Nin": [fixed_skills("class-hunter", "stealth"), choose_skills("class-hunter", 4, [skill for skill in ALL_SKILL_IDS if skill != "stealth"], "Choose four other skills")],
     "Intelligence-Operative": [fixed_skills("class-intelligence", "investigation"), choose_skills("class-intelligence", 3, ["chakra-control", "crafting", "ninshou", "persuasion", "illusions", "insight", "intimidation", "history", "perception", "martial-arts"])],
     "Medical-Nin": [fixed_skills("class-medical", "medicine", "chakra-control"), choose_skills("class-medical", 2, ["history", "insight", "perception", "illusions", "ninshou"])],
     "Ninjutsu-Specialist": [fixed_skills("class-ninjutsu", "ninshou"), choose_skills("class-ninjutsu", 4, ["martial-arts", "insight", "investigation", "history", "stealth", "perception", "chakra-control"])],
@@ -154,7 +154,7 @@ CLASS_PROFICIENCY_GRANTS = {
 
 CLASS_COMBAT_PROFICIENCIES = {
     "Genjutsu-Specialist": {"armor": ["Light Armor"], "weapons": ["Simple Weapons"], "ninjaTools": ["Trapper's Kit"], "savingThrows": ["Constitution", "Charisma"]},
-    "Hunter-Nin": {"armor": ["Light Armor"], "weapons": ["Simple Weapons", "Broadsword", "Iron Claw", "Katana", "Knuckle Blades", "Chakram"], "ninjaTools": ["Tracking Kit", "Forensics Kit"], "savingThrows": ["Dexterity", "Intelligence"]},
+    "Hunter-Nin": {"armor": ["Light Armor"], "weapons": ["Simple Weapons", "Battle Wire", "Broadsword", "Chakram", "Fuma-Shuriken", "Iron Claw", "Jitte", "Katana", "Knuckle Blades", "Longbow", "Odachi", "Scythe"], "ninjaTools": ["Disguise Kit", "Forensics Kit", "Forgery Kit"], "savingThrows": ["Dexterity", "Intelligence", "Wisdom"]},
     "Intelligence-Operative": {"armor": ["Light Armor", "Medium Armor"], "weapons": ["Simple Weapons", "Fuma Shuriken", "Knuckle Blades"], "ninjaTools": ["Trapper's Kit", "Poison Kit", "Tracking Kit", "Forensics Kit", "Forgery Kit"], "savingThrows": ["Dexterity", "Intelligence"]},
     "Medical-Nin": {"armor": ["Light Armor", "Medium Armor"], "weapons": ["Simple Weapons"], "ninjaTools": ["Medicine Kit", "Poison Kit"], "savingThrows": ["Wisdom", "Charisma"]},
     "Ninjutsu-Specialist": {"armor": ["Light Armor"], "weapons": ["Simple Weapons"], "ninjaTools": [], "savingThrows": ["Wisdom", "Intelligence"]},
@@ -552,6 +552,9 @@ def extract_equipment(workbook) -> dict:
         name = text(sheet.cell(row_number, 1).value)
         if not name or name.startswith("[["):
             continue
+        # The source sheet misspells the Japanese sword "Tachi" as "Taichi".
+        # Correct the display name while retaining the stable row-based ID.
+        name = re.sub(r"^Taichi\b", "Tachi", name, flags=re.I)
         market_name = re.sub(r"\s*\((?:Two Hands)\)\s*$", "", name, flags=re.I).casefold()
         price, category = WEAPON_MARKET.get(market_name, (None, ""))
         weapons.append({

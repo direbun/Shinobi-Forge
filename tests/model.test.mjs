@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { abilityBreakdown, abilityModifier, effectiveSkillDegree, emptyCharacter, grantedToolkits, masteryRankCap, proficiencyBonus, proficiencyDegreeBonus, puppetAbilityPointPool, puppetAllowedCount, puppetDerivedStats, puppetUpgradeCapacity, puppetUpgradeProblems, sanitizeCharacter, startingWeaponRequirements, summonDerivedStats, syncAbilityScores, validateCharacter } from "../model.mjs";
+import { ABILITY_POINT_BUDGET, ABILITY_POINT_COSTS, STANDARD_ARRAY, abilityBreakdown, abilityModifier, effectiveSkillDegree, emptyCharacter, grantedToolkits, masteryRankCap, proficiencyBonus, proficiencyDegreeBonus, puppetAbilityPointPool, puppetAllowedCount, puppetDerivedStats, puppetUpgradeCapacity, puppetUpgradeProblems, sanitizeCharacter, startingWeaponRequirements, summonDerivedStats, syncAbilityScores, validateCharacter } from "../model.mjs";
 
 assert.equal(abilityModifier(10), 0);
 assert.equal(abilityModifier(9), -1);
@@ -26,7 +26,10 @@ assert.deepEqual(restored.equipment, { ryo: 100, startingChoices: {}, startingDe
 assert.deepEqual(restored.summons, []);
 assert.deepEqual(restored.puppets, []);
 assert.deepEqual(restored.proficiencies, { skills: {}, toolkits: [], grantChoices: {} });
-assert.deepEqual(restored.capabilities, { entries: {}, custom: [], trainingExtras: { armor: "", weapons: "", ninjaTools: "", savingThrows: "" } });
+assert.deepEqual(restored.capabilities, { entries: {}, custom: [], trainingExtras: { armor: "", weapons: "", ninjaTools: "", savingThrows: "" }, trainingSelections: { armor: [], weapons: [], ninjaTools: [], savingThrows: [] } });
+assert.equal(ABILITY_POINT_BUDGET, 30);
+assert.deepEqual(STANDARD_ARRAY, [15, 14, 13, 12, 11, 10]);
+assert.deepEqual(ABILITY_POINT_COSTS, { 8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9 });
 assert.deepEqual(startingWeaponRequirements("1 Simple Weapon, 2 Martial Weapons"), ["Simple", "Martial", "Martial"]);
 
 const summon = { rank: "B-Rank", roleMode: "dual", primaryRole: "Defender", secondaryRole: "Caster", statIncreases: { constitution: 2 }, hpAdjustment: 0, acAdjustment: 0 };
@@ -61,7 +64,7 @@ assert.deepEqual(abilityBreakdown(character, "strength"), { base: 10, clan: 2, b
 assert.equal(character.abilities.strength, 14);
 
 const rules = { classes: [], clans: [], backgrounds: [], subclasses: [], summons: { tribes: [], ranks: {} }, proficiencies: { skills: [] } };
-assert.equal(validateCharacter(character, rules).length, 4);
+assert.equal(validateCharacter(character, rules).length, 5);
 
 const trained = sanitizeCharacter({ ...emptyCharacter(), proficiencies: { skills: { athletics: { degree: 3, source: "Class" } }, toolkits: [{ id: "kit", name: "Poison Kit", degree: 2, source: "Background" }] } });
 assert.deepEqual(trained.proficiencies.skills.athletics, { degree: 3, source: "Class" });
@@ -72,11 +75,25 @@ const extractedRules = JSON.parse(readFileSync(new URL("../data/rules.json", imp
 const medicalClass = extractedRules.classes.find(({ name }) => name === "Medical-Nin");
 assert.deepEqual(medicalClass.combatProficiencies.armor, ["Light Armor", "Medium Armor"]);
 assert.deepEqual(medicalClass.combatProficiencies.ninjaTools, ["Medicine Kit", "Poison Kit"]);
-const capabilityCharacter = sanitizeCharacter({ ...emptyCharacter(), capabilities: { entries: { fire: { enabled: true, source: "Feat" }, medical: { enabled: false, source: "" } }, custom: [{ id: "custom", name: "Ink Release", source: "Clan" }], trainingExtras: { weapons: "Gunbai Fan" } } });
+const capabilityCharacter = sanitizeCharacter({ ...emptyCharacter(), capabilities: { entries: { fire: { enabled: true, source: "Feat" }, medical: { enabled: false, source: "" } }, custom: [{ id: "custom", name: "Ink Release", source: "Clan" }], trainingExtras: { weapons: "Feat" }, trainingSelections: { weapons: ["Gunbai Fan"] } } });
 assert.deepEqual(capabilityCharacter.capabilities.entries.fire, { enabled: true, source: "Feat" });
 assert.equal(capabilityCharacter.capabilities.entries.medical.enabled, false);
 assert.equal(capabilityCharacter.capabilities.custom[0].name, "Ink Release");
-assert.equal(capabilityCharacter.capabilities.trainingExtras.weapons, "Gunbai Fan");
+assert.equal(capabilityCharacter.capabilities.trainingExtras.weapons, "Feat");
+assert.deepEqual(capabilityCharacter.capabilities.trainingSelections.weapons, ["Gunbai Fan"]);
+const pointBuy = emptyCharacter();
+pointBuy.abilityMethod = "pointBuy";
+Object.assign(pointBuy.baseAbilities, { strength: 15, dexterity: 15, constitution: 15, intelligence: 15, wisdom: 8, charisma: 8 });
+syncAbilityScores(pointBuy);
+assert.ok(validateCharacter(pointBuy, extractedRules).some((entry) => entry.includes("exceeds the 30-point")));
+const standardArray = emptyCharacter();
+standardArray.abilityMethod = "standardArray";
+ABILITIES_FOR_TEST: {
+  const keys = ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"];
+  keys.forEach((ability, index) => { standardArray.baseAbilities[ability] = STANDARD_ARRAY[index]; });
+}
+syncAbilityScores(standardArray);
+assert.ok(!validateCharacter(standardArray, extractedRules).some((entry) => entry.includes("Standard Array")));
 const guided = emptyCharacter();
 guided.classId = extractedRules.classes.find(({ name }) => name === "Medical-Nin").id;
 guided.backgroundId = extractedRules.backgrounds.find(({ name }) => name === "Hermit").id;

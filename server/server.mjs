@@ -10,6 +10,8 @@ const appRoot = dirname(here);
 const publicRoot = join(appRoot, process.env.STATIC_DIRECTORY || (process.env.NODE_ENV === "production" ? "dist" : "."));
 const rulesPath = join(appRoot, "private-data", "rules.json");
 const rules = JSON.parse(await readFile(rulesPath, "utf8"));
+const featCatalogue = JSON.parse(await readFile(join(appRoot, "private-data", "feats.json"), "utf8"));
+rules.feats = featCatalogue.feats;
 const engine = createEngine(rules);
 
 const STATIC_FILES = new Map([
@@ -128,6 +130,7 @@ async function routeApi(request, response, pathname, config, identity) {
   const body = await readJson(request, config.maxBodyBytes);
   if (pathname === "/api/v1/selection") return json(response, 200, engine.selection(body));
   if (pathname === "/api/v1/jutsu/search") return json(response, 200, engine.searchJutsu(body));
+  if (pathname === "/api/v1/feats/search") return json(response, 200, engine.searchFeats(body));
   if (pathname === "/api/v1/equipment/search") return json(response, 200, engine.searchEquipment(body));
   if (pathname === "/api/v1/summon/tribe") {
     const tribe = engine.summonTribe(body.id);

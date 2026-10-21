@@ -1,8 +1,11 @@
 import {
   ABILITIES,
+  ABILITY_POINT_BUDGET,
+  ABILITY_POINT_COSTS,
   CLASS_ASI_LEVELS,
   PUPPET_UPGRADE_TIERS,
   SUMMON_RANK_ORDER,
+  STANDARD_ARRAY,
   abilityBreakdown,
   abilityModifier,
   activeProficiencyGrants,
@@ -23,6 +26,8 @@ import {
   summonDerivedStats,
   validateCharacter,
 } from "./character-model.mjs";
+import { applyProgressionCatalog } from "./progression-catalog.mjs";
+import { featAbilityBonuses, featChoiceDefinitions, featEligibility } from "../feat-system.mjs";
 
 const CAPABILITIES = [
   { id: "fire", name: "Fire", patterns: [/fire release/i] },
@@ -53,23 +58,33 @@ function boundedText(value, maximum = 120) {
 }
 
 function keywordList(value = "") {
-  return String(value).split(/[,;/]/).map((item) => item.trim()).filter(Boolean);
+  return String(value).split(/[,;/]/).map((item) => item.trim().replace(/[.]+$/, "").replace(/\s+/g, " ")).filter(Boolean);
+}
+
+const NATURE_KEYWORDS = ["fire", "wind", "lightning", "earth", "water", "ice", "lava", "boil", "storm", "magnet", "scorch", "explosion", "wood", "crystal", "dust", "yin", "yang"];
+
+function canonicalKeyword(value = "") {
+  const cleaned = boundedText(value, 60).replace(/[.]+$/, "").replace(/\s+/g, " ").trim();
+  const normalized = cleaned.toLowerCase().replace(/[^a-z0-9()]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  if (normalized === "any nature release") return "Any Nature Release";
+  const nature = NATURE_KEYWORDS.find((name) => normalized === name || new RegExp(`\\b${name}\\s+release\\b`).test(normalized));
+  if (nature) return `${nature[0].toUpperCase()}${nature.slice(1)} Release`;
+  if (/\bcha(?:i)?n\b/.test(normalized)) return "Chain";
+  return cleaned.replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+(?:\d+|x)$/i, "").trim();
 }
 
 function hasKeyword(entry, keyword) {
-  return keywordList(entry?.keywords).some((item) => item.toLowerCase() === keyword.toLowerCase());
+  const expected = canonicalKeyword(keyword).toLowerCase();
+  return keywordList(entry?.keywords).some((item) => canonicalKeyword(item).toLowerCase() === expected);
 }
 
 function matchesElement(entry, element) {
   const normalized = String(element).toLowerCase();
   if (normalized === "none") {
-    const natureNames = ["fire", "wind", "lightning", "earth", "water", "ice", "lava", "boil", "storm", "magnet", "scorch", "explosion", "wood", "crystal", "dust", "yin", "yang"];
-    return !keywordList(entry?.keywords).some((item) => {
-      const keyword = item.toLowerCase().replace(/\.$/, "");
-      return keyword === "any nature release" || natureNames.some((nature) => keyword === nature || keyword === `${nature} release`);
-    });
+    return !keywordList(entry?.keywords).some((item) => canonicalKeyword(item) === "Any Nature Release" || NATURE_KEYWORDS.some((nature) => canonicalKeyword(item).toLowerCase() === `${nature} release`));
   }
-  return keywordList(entry?.keywords).some((item) => item.toLowerCase() === normalized || item.toLowerCase() === `${normalized} release`);
+  return keywordList(entry?.keywords).some((item) => canonicalKeyword(item).toLowerCase() === `${normalized} release`);
 }
 
 function matchesDiscipline(entry, discipline) {
@@ -85,6 +100,19 @@ function paginate(items, request = {}, maximum = 50) {
 
 function selectedRecord(collection, id) {
   return collection.find((entry) => entry.id === id) || null;
+}
+
+function normalizedReference(value = "") {
+  return String(value).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/gi, " ").trim().toLowerCase();
+}
+
+function referencedRecord(collection = [], ...references) {
+  for (const reference of references.filter(Boolean)) {
+    const normalized = normalizedReference(reference);
+    const match = collection.find((entry) => entry.id === reference || normalizedReference(entry.name) === normalized);
+    if (match) return match;
+  }
+  return null;
 }
 
 function attainedFeatureNames(record, level) {
@@ -115,7 +143,8 @@ function publicClassSummary(entry) {
 function jutsuCastingStats(character, selection) {
   const abilities = { Ninjutsu: "intelligence", Genjutsu: "wisdom", Taijutsu: "strength", Bukijutsu: "strength" };
   if (selection.class?.name === "Hunter-Nin") {
-    const precisionChoice = Object.entries(character.featureChoices || {}).find(([key]) => key.endsWith(":Lethal Precision"))?.[1]?.toLowerCase() || "";
+    const structuredChoice = character.featureChoices?.["progression:hunter-lethal-precision:1"];
+    const precisionChoice = String((Array.isArray(structuredChoice) ? structuredChoice[0] : structuredChoice) || Object.entries(character.featureChoices || {}).find(([key]) => key.endsWith(":Lethal Precision"))?.[1] || "").toLowerCase();
     if (precisionChoice.includes("taijutsu")) abilities.Taijutsu = "dexterity";
     if (precisionChoice.includes("bukijutsu")) abilities.Bukijutsu = "dexterity";
   }
@@ -128,6 +157,86 @@ function jutsuCastingStats(character, selection) {
 
 export function createEngine(rules) {
   if (!rules?.classes || !rules?.jutsu) throw new Error("Private rules catalogue is invalid.");
+  applyProgressionCatalog(rules);
+
+  const equipmentRules = [...(rules.equipment?.weapons || []), ...(rules.equipment?.armor || [])];
+  const uniqueSorted = (values) => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const trainingOptions = {
+    armor: uniqueSorted(rules.classes.flatMap((entry) => entry.combatProficiencies?.armor || [])),
+    weapons: uniqueSorted([
+      ...rules.classes.flatMap((entry) => entry.combatProficiencies?.weapons || []),
+      ...(rules.equipment?.weapons || []).map((entry) => entry.name),
+    ]),
+    ninjaTools: uniqueSorted([
+      ...rules.classes.flatMap((entry) => entry.combatProficiencies?.ninjaTools || []).filter((entry) => !/^choose\b/i.test(entry)),
+      ...rules.backgrounds.flatMap((entry) => [...(entry.proficiencyGrants?.toolkits || []), ...(entry.proficiencyGrants?.toolkitOptions || [])]),
+    ]),
+    savingThrows: ABILITIES.map((ability) => ability[0].toUpperCase() + ability.slice(1)),
+  };
+
+  function normalizeImportedReferences(input) {
+    const character = structuredClone(input);
+    for (const [idField, nameField, collection] of [
+      ["classId", "className", rules.classes],
+      ["subclassId", "subclassName", rules.subclasses],
+      ["clanId", "clanName", rules.clans],
+      ["backgroundId", "backgroundName", rules.backgrounds],
+    ]) {
+      const record = referencedRecord(collection, character[nameField], character[nameField.replace("Name", "")], character[idField]);
+      if (record) character[idField] = record.id;
+    }
+    if (character.equipment?.startingDetails && typeof character.equipment.startingDetails === "object") {
+      character.equipment.startingDetails = Object.fromEntries(Object.entries(character.equipment.startingDetails).map(([groupId, values]) => [groupId,
+        Array.isArray(values) ? values.map((reference) => referencedRecord(equipmentRules, reference)?.id || reference) : values,
+      ]));
+    }
+    if (Array.isArray(character.equipment?.items)) {
+      character.equipment.items = character.equipment.items.map((item) => {
+        const record = referencedRecord(equipmentRules, item.catalogueName, item.name, item.catalogueId);
+        return record ? { ...item, catalogueId: record.id, catalogueName: record.name, name: record.name } : item;
+      });
+    }
+    if (Array.isArray(character.jutsu)) {
+      character.jutsu = character.jutsu.map((entry) => {
+        const record = referencedRecord(rules.jutsu, entry.name, entry.id);
+        return record ? {
+          ...entry,
+          id: record.id,
+          name: record.name,
+          rank: entry.rank || record.rank,
+          keywords: entry.keywords || record.keywords || "",
+          classification: entry.classification || record.classification || "",
+        } : entry;
+      });
+    }
+    if (Array.isArray(character.feats)) {
+      character.feats = character.feats.map((entry) => {
+        const record = referencedRecord(rules.feats || [], entry.featName, entry.featId);
+        return record ? { ...entry, featId: record.id, featName: record.name } : entry;
+      });
+    }
+    return character;
+  }
+
+  function portableCharacter(result) {
+    const character = structuredClone(result.character);
+    character.className = result.selection.class?.name || "";
+    character.subclassName = result.selection.subclass?.name || "";
+    character.clanName = result.selection.clan?.name || "";
+    character.backgroundName = result.selection.background?.name || "";
+    character.equipment.startingDetails = Object.fromEntries(Object.entries(character.equipment.startingDetails || {}).map(([groupId, values]) => [groupId,
+      Array.isArray(values) ? values.map((reference) => referencedRecord(equipmentRules, reference)?.name || reference) : values,
+    ]));
+    character.equipment.items = character.equipment.items.map((item) => {
+      const record = referencedRecord(equipmentRules, item.catalogueId, item.catalogueName, item.name);
+      return record ? { ...item, catalogueId: record.id, catalogueName: record.name, name: record.name } : item;
+    });
+    character.feats = character.feats.map((entry) => {
+      const record = referencedRecord(rules.feats || [], entry.featId, entry.featName);
+      return record ? { ...entry, featId: record.id, featName: record.name } : entry;
+    });
+    return character;
+  }
 
   function selectionFor(character) {
     return {
@@ -141,11 +250,13 @@ export function createEngine(rules) {
   function evaluate(input) {
     const character = sanitizeCharacter(input);
     const selection = selectionFor(character);
-    const abilities = Object.fromEntries(ABILITIES.map((ability) => [ability, {
-      breakdown: abilityBreakdown(character, ability),
-      score: character.abilities[ability],
-      modifier: abilityModifier(character.abilities[ability]),
-    }]));
+    const featBonuses = featAbilityBonuses(character, rules);
+    const abilities = Object.fromEntries(ABILITIES.map((ability) => {
+      const breakdown = { ...abilityBreakdown(character, ability), feat: featBonuses[ability] || 0 };
+      const score = Object.values(breakdown).reduce((total, value) => total + Number(value || 0), 0);
+      character.abilities[ability] = score;
+      return [ability, { breakdown, score, modifier: abilityModifier(score) }];
+    }));
     const grants = activeProficiencyGrants(character, rules);
     const skills = Object.fromEntries((rules.proficiencies?.skills || []).map((skill) => {
       const degree = effectiveSkillDegree(character, rules, skill.id);
@@ -188,7 +299,7 @@ export function createEngine(rules) {
       return {
         schemaVersion: rules.schemaVersion,
         source: { sheetVersion: rules.source?.sheetVersion || "", sheetTitle: rules.source?.sheetTitle || "" },
-        counts: { classes: rules.classes.length, subclasses: rules.subclasses.length, clans: rules.clans.length, backgrounds: rules.backgrounds.length, jutsu: rules.jutsu.length },
+        counts: { classes: rules.classes.length, subclasses: rules.subclasses.length, clans: rules.clans.length, backgrounds: rules.backgrounds.length, jutsu: rules.jutsu.length, feats: rules.feats?.length || 0 },
         options: {
           classes: rules.classes.map(publicClassSummary),
           subclasses: rules.subclasses.map((entry) => ({ id: entry.id, className: entry.className, name: entry.name })),
@@ -200,9 +311,12 @@ export function createEngine(rules) {
         summons: { templates: rules.summons.templates, roles: rules.summons.roles, ranks: rules.summons.ranks },
         filters: {
           jutsuRanks: [...new Set(rules.jutsu.map((entry) => entry.rank).filter(Boolean))].sort(),
+          jutsuKeywords: uniqueSorted(rules.jutsu.flatMap((entry) => keywordList(entry.keywords).map(canonicalKeyword))),
           hijutsuTraditions: [...new Set(rules.jutsu.filter((entry) => hasKeyword(entry, "Hijutsu")).map((entry) => entry.classification).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+          featCategories: uniqueSorted((rules.feats || []).map((entry) => entry.category)),
         },
-        constants: { abilities: ABILITIES, classAsiLevels: CLASS_ASI_LEVELS, summonRanks: SUMMON_RANK_ORDER, puppetUpgradeTiers: PUPPET_UPGRADE_TIERS },
+        trainingOptions,
+        constants: { abilities: ABILITIES, classAsiLevels: CLASS_ASI_LEVELS, summonRanks: SUMMON_RANK_ORDER, puppetUpgradeTiers: PUPPET_UPGRADE_TIERS, standardArray: STANDARD_ARRAY, abilityPointCosts: ABILITY_POINT_COSTS, abilityPointBudget: ABILITY_POINT_BUDGET },
         emptyCharacter: emptyCharacter(),
       };
     },
@@ -215,6 +329,7 @@ export function createEngine(rules) {
       const rank = boundedText(request.rank, 30);
       const disciplines = Array.isArray(request.disciplines) ? request.disciplines.slice(0, 4).map((item) => boundedText(item, 30)) : [];
       const elements = Array.isArray(request.elements) ? request.elements.slice(0, 8).map((item) => boundedText(item, 30)) : [];
+      const keywords = Array.isArray(request.keywords) ? request.keywords.slice(0, 20).map((item) => boundedText(item, 60)).filter(Boolean) : [];
       const clan = boundedText(request.clan, 100);
       const hijutsu = Boolean(request.hijutsu);
       const includeHijutsu = Boolean(request.includeHijutsu);
@@ -223,11 +338,35 @@ export function createEngine(rules) {
         if (rank && entry.rank !== rank) return false;
         if (disciplines.length && !disciplines.some((value) => matchesDiscipline(entry, value))) return false;
         if (elements.length && !elements.some((value) => matchesElement(entry, value))) return false;
+        if (keywords.length && !keywords.every((value) => hasKeyword(entry, value))) return false;
         if (hijutsu !== hasKeyword(entry, "Hijutsu") && (hijutsu || !includeHijutsu)) return false;
         if (hijutsu && clan && !String(entry.classification || "").toLowerCase().includes(clan.toLowerCase())) return false;
         return true;
       });
       return paginate(matches, request, 50);
+    },
+    searchFeats(request = {}) {
+      const character = sanitizeCharacter(request.character || emptyCharacter());
+      const query = boundedText(request.query).toLowerCase();
+      const category = boundedText(request.category, 30);
+      const owner = boundedText(request.owner, 100);
+      const showLocked = Boolean(request.showLocked);
+      const slot = request.slot && typeof request.slot === "object" ? {
+        id: boundedText(request.slot.id, 80),
+        level: Math.min(20, Math.max(1, Number(request.slot.level) || character.level)),
+        source: boundedText(request.slot.source, 50),
+      } : { id: "", level: character.level, source: "Campaign / downtime" };
+      const matches = (rules.feats || []).map((feat) => {
+        const eligibility = featEligibility(feat, character, rules, slot);
+        return { ...feat, eligibility, choices: featChoiceDefinitions(feat, character, rules) };
+      }).filter((feat) => {
+        if (query && !`${feat.name} ${feat.prerequisite} ${feat.description} ${feat.owner}`.toLowerCase().includes(query)) return false;
+        if (category && feat.category !== category) return false;
+        if (owner && !String(feat.owner || "").toLowerCase().includes(owner.toLowerCase())) return false;
+        if (!showLocked && !feat.eligibility.eligible) return false;
+        return true;
+      }).sort((a, b) => Number(b.eligibility.eligible) - Number(a.eligibility.eligible) || a.name.localeCompare(b.name));
+      return paginate(matches, request, 500);
     },
     searchEquipment(request = {}) {
       const query = boundedText(request.query).toLowerCase();
@@ -250,7 +389,7 @@ export function createEngine(rules) {
     },
     evaluate,
     importCharacter(input) {
-      return evaluate(input);
+      return evaluate(normalizeImportedReferences(input));
     },
     purchaseEquipment(input, itemId) {
       const character = sanitizeCharacter(input);
@@ -268,7 +407,14 @@ export function createEngine(rules) {
       const character = sanitizeCharacter(input);
       const rule = selectedRecord(rules.jutsu, jutsuId);
       if (!rule) throw Object.assign(new Error("The requested jutsu does not exist."), { status: 404, code: "JUTSU_NOT_FOUND" });
-      const entry = { id: rule.id, name: rule.name, rank: rule.rank, level: Math.min(character.level, Math.max(1, Number(target.level) || character.level)) };
+      const entry = {
+        id: rule.id,
+        name: rule.name,
+        rank: rule.rank,
+        keywords: rule.keywords || "",
+        classification: rule.classification || "",
+        level: Math.min(character.level, Math.max(1, Number(target.level) || character.level)),
+      };
       if (target.kind === "summon") {
         const summon = character.summons[Number(target.index)];
         if (!summon) throw Object.assign(new Error("The requested summon does not exist."), { status: 404, code: "SUMMON_NOT_FOUND" });
@@ -285,7 +431,7 @@ export function createEngine(rules) {
     },
     exportCharacter(input) {
       const result = evaluate(input);
-      return { character: result.character, valid: result.problems.length === 0, problems: result.problems };
+      return { character: portableCharacter(result), valid: result.problems.length === 0, problems: result.problems };
     },
   };
 }

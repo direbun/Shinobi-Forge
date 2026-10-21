@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#17120e">
     <title>Shinobi Forge - Naruto 5e Character Builder</title>
-    <link rel="stylesheet" href="styles.css?v=20261020-complete-pages">
+    <link rel="stylesheet" href="styles.css?v=20261020-structured-inputs">
   </head>
   <body>
     <div class="shell">
@@ -25,7 +25,7 @@
         <div class="level-chip">Level <strong id="sidebar-level">1</strong></div>
         <nav id="step-nav" aria-label="Character builder steps">
           <button class="nav-step active" data-step="identity"><span>01</span>Identity</button>
-          <button class="nav-step" data-step="build"><span>02</span>Build</button>
+          <button class="nav-step" data-step="build"><span>02</span>Class &amp; levels</button>
           <button class="nav-step" data-step="abilities"><span>03</span>Abilities</button>
           <button class="nav-step" data-step="proficiencies"><span>04</span>Proficiencies</button>
           <button class="nav-step" data-step="jutsu"><span>05</span>Jutsu</button>
@@ -44,6 +44,8 @@
           <div class="source-pill" id="source-pill">Reading source data…</div>
         </section>
 
+        <div class="builder-progress" aria-label="Character builder progress"><span id="builder-progress-label">Step 1 of 10</span><div><i id="builder-progress-fill"></i></div></div>
+
         <div id="notice" class="notice hidden" role="status"></div>
 
         <section class="step-panel active" data-panel="identity">
@@ -58,19 +60,25 @@
         </section>
 
         <section class="step-panel" data-panel="build">
-          <div class="panel-heading"><div><span>Step 2</span><h3>Core build</h3></div><p>Options are taken from the supplied character sheet.</p></div>
+          <div class="panel-heading"><div><span>Step 2</span><h3>Class and advancement</h3></div><p>Choose the core build, resolve every feature choice you have reached, and preview the full level path.</p></div>
+          <div class="level-controller"><div><span>Character level</span><strong id="build-level-display">1</strong></div><button type="button" class="button ghost" data-level-adjust="-1" aria-label="Decrease level">−</button><input data-field="level" id="build-level-input" type="range" min="1" max="20" value="1" aria-label="Character level"><button type="button" class="button primary" data-level-adjust="1" aria-label="Increase level">+</button></div>
           <div class="form-grid two">
-            <label>Current level<input data-field="level" type="number" min="1" max="20"></label>
             <label>Clan<select data-field="clanId" id="clan-select"></select></label>
             <label>Class<select data-field="classId" id="class-select"></select></label>
             <label>Subclass<select data-field="subclassId" id="subclass-select"></select></label>
             <label>Background<select data-field="backgroundId" id="background-select"></select></label>
           </div>
           <div id="build-summary" class="detail-card"></div>
+          <div id="build-progression" class="build-progression"></div>
         </section>
 
         <section class="step-panel" data-panel="abilities">
-          <div class="panel-heading"><div><span>Step 3</span><h3>Ability scores</h3></div><p>Enter starting scores before bonuses. The builder then itemizes every increase.</p></div>
+          <div class="panel-heading"><div><span>Step 3</span><h3>Ability scores</h3></div><p>Choose a generation method. The builder applies the official Naruto 5e limits before itemizing every increase.</p></div>
+          <section class="ability-method-panel">
+            <div><span>Score generation</span><strong id="ability-method-title">Manual entry</strong><small id="ability-method-help">Enter the starting score for each ability.</small></div>
+            <label>Method<select id="ability-method"><option value="manual">Manual</option><option value="pointBuy">Point Buy</option><option value="standardArray">Standard Array</option></select></label>
+            <div id="ability-method-status" class="ability-method-status"></div>
+          </section>
           <div class="ability-sources">
             <div class="source-heading"><div><strong>Clan increases</strong><small>Choose +2 and +1 in different abilities.</small></div></div>
             <div class="form-grid two compact">
@@ -105,7 +113,7 @@
           </div>
           <div id="proficiency-grid" class="proficiency-grid"></div>
           <section class="toolkit-section">
-            <div class="source-heading"><div><strong>Toolkit proficiencies</strong><small>Record crafting, poison, disguise, or other toolkit training and its source.</small></div><button id="add-toolkit" type="button" class="button ghost">Add toolkit</button></div>
+            <div class="source-heading"><div><strong>Toolkit proficiencies</strong><small>Choose a toolkit, then record why the character has that training.</small></div><div class="inline-adder"><select id="toolkit-to-add" aria-label="Toolkit to add"></select><button id="add-toolkit" type="button" class="button ghost">Add toolkit</button></div></div>
             <div id="toolkit-list" class="toolkit-list"></div>
           </section>
         </section>
@@ -113,7 +121,7 @@
         <section class="step-panel" data-panel="jutsu">
           <div class="panel-heading"><div><span>Step 5</span><h3>Jutsu library</h3></div><p>Search the imported catalogue, then record the level each technique was learned.</p></div>
           <section class="jutsu-casting-panel" aria-labelledby="jutsu-casting-title"><div class="jutsu-casting-heading"><div><span>Current character</span><h4 id="jutsu-casting-title">Jutsu attack modifiers and save DCs</h4></div><small>Calculated from your level, proficiency bonus, abilities, and supported class choices.</small></div><div id="jutsu-casting-stats" class="jutsu-casting-stats"></div></section>
-          <div class="jutsu-toolbar"><input id="jutsu-search" type="search" placeholder="Search name or wording…"><select id="jutsu-rank"><option value="">All ranks</option></select></div>
+          <div class="jutsu-toolbar"><input id="jutsu-search" type="search" placeholder="Search name or wording…"><select id="jutsu-rank"><option value="">All ranks</option></select><details id="jutsu-keyword-picker" class="multi-select"><summary><span>Keywords</span><strong id="jutsu-keyword-summary">Any keyword</strong></summary><div id="jutsu-keyword-options" class="multi-select-options"></div></details></div>
           <div class="jutsu-filter-board">
             <div class="filter-group"><span>Discipline</span><div id="jutsu-discipline-filters" class="filter-chips"><button type="button" data-jutsu-discipline="Ninjutsu">Ninjutsu</button><button type="button" data-jutsu-discipline="Bukijutsu">Bukijutsu</button><button type="button" data-jutsu-discipline="Genjutsu">Genjutsu</button><button type="button" data-jutsu-discipline="Taijutsu">Taijutsu</button></div></div>
             <div class="filter-group"><span>Nature release</span><div id="jutsu-element-filters" class="filter-chips elemental"><button type="button" data-jutsu-element="Fire">Fire</button><button type="button" data-jutsu-element="Wind">Wind</button><button type="button" data-jutsu-element="Lightning">Lightning</button><button type="button" data-jutsu-element="Earth">Earth</button><button type="button" data-jutsu-element="Water">Water</button><button type="button" data-jutsu-element="None">No Nature</button></div></div>
@@ -159,7 +167,7 @@
         </section>
 
         <section class="step-panel" data-panel="timeline">
-          <div class="panel-heading"><div><span>Step 9</span><h3>Level timeline</h3></div><p>Automatic features and your own decisions stay attached to the level where they happened.</p></div>
+          <div class="panel-heading"><div><span>Step 9</span><h3>Level timeline</h3></div><p>Review attained levels, resolve valid choices in place, and inspect every future feature through level 20.</p></div>
           <div id="timeline" class="timeline"></div>
         </section>
 
@@ -171,6 +179,6 @@
         </section>
       </main>
     </div>
-    <script type="module" src="app.js?v=20261020-complete-pages"></script>
+    <script type="module" src="app.js?v=20261020-structured-inputs"></script>
   </body>
 </html>

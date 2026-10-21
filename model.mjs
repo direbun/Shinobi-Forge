@@ -1,6 +1,11 @@
 export const ABILITIES = ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"];
 export const SUMMON_RANK_ORDER = ["D-Rank", "C-Rank", "B-Rank", "A-Rank", "S-Rank"];
 export const PUPPET_UPGRADE_TIERS = ["Wood", "Bronze", "Silver", "Gold", "Platinum"];
+export const STANDARD_ARRAY = [15, 14, 13, 12, 11, 10];
+export const ABILITY_POINT_COSTS = { 8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9 };
+export const ABILITY_POINT_BUDGET = 30;
+
+import { featValidationProblems } from "./feat-system.mjs";
 
 const PUPPET_SLOT_TABLE = [
   {},
@@ -40,8 +45,8 @@ export function emptyCharacter() {
   const baseAbilities = Object.fromEntries(ABILITIES.map((ability) => [ability, 10]));
   return {
     schema: "naruto5e-character",
-    schemaVersion: 8,
-    appVersion: "0.8.0",
+    schemaVersion: 9,
+    appVersion: "0.9.0",
     name: "",
     player: "",
     level: 1,
@@ -52,6 +57,7 @@ export function emptyCharacter() {
     ambition: "",
     alignment: "",
     notes: "",
+    abilityMethod: "manual",
     baseAbilities,
     abilities: { ...baseAbilities },
     abilityIncreases: {
@@ -63,6 +69,8 @@ export function emptyCharacter() {
       manual: Object.fromEntries(ABILITIES.map((ability) => [ability, 0])),
     },
     jutsu: [],
+    feats: [],
+    featSettings: { allowRare: false },
     equipment: { ryo: 100, startingChoices: {}, startingDetails: {}, items: [] },
     summons: [],
     puppets: [],
@@ -71,6 +79,7 @@ export function emptyCharacter() {
       entries: {},
       custom: [],
       trainingExtras: { armor: "", weapons: "", ninjaTools: "", savingThrows: "" },
+      trainingSelections: { armor: [], weapons: [], ninjaTools: [], savingThrows: [] },
     },
     featureChoices: {},
     levelChoices: {},
@@ -96,9 +105,18 @@ export function sanitizeCharacter(input) {
     ...base,
     ...input,
     level,
+    abilityMethod: ["manual", "pointBuy", "standardArray"].includes(input.abilityMethod) ? input.abilityMethod : "manual",
     baseAbilities: Object.fromEntries(ABILITIES.map((ability) => [ability, Math.min(30, Math.max(1, Number(sourceScores[ability]) || 10))])),
     abilityIncreases: increases,
     jutsu: Array.isArray(input.jutsu) ? input.jutsu.filter((entry) => entry && entry.id) : [],
+    feats: Array.isArray(input.feats) ? input.feats.filter((entry) => entry && typeof entry === "object").map((entry) => ({
+      slotId: String(entry.slotId || ""),
+      featId: String(entry.featId || ""),
+      level: Math.min(20, Math.max(1, Number(entry.level) || level)),
+      source: String(entry.source || ""),
+      choices: entry.choices && typeof entry.choices === "object" ? Object.fromEntries(Object.entries(entry.choices).map(([id, values]) => [id, Array.isArray(values) ? values.filter(Boolean).map(String) : []])) : {},
+    })) : [],
+    featSettings: { allowRare: Boolean(input.featSettings?.allowRare) },
     equipment: {
       ryo: Math.max(0, Number(input.equipment?.ryo ?? 100) || 0),
       startingChoices: input.equipment?.startingChoices && typeof input.equipment.startingChoices === "object" ? input.equipment.startingChoices : {},
@@ -156,6 +174,9 @@ export function sanitizeCharacter(input) {
         ninjaTools: String(input.capabilities?.trainingExtras?.ninjaTools || ""),
         savingThrows: String(input.capabilities?.trainingExtras?.savingThrows || ""),
       },
+      trainingSelections: Object.fromEntries(["armor", "weapons", "ninjaTools", "savingThrows"].map((key) => [key,
+        [...new Set((Array.isArray(input.capabilities?.trainingSelections?.[key]) ? input.capabilities.trainingSelections[key] : []).filter(Boolean).map(String))],
+      ])),
     },
     featureChoices: input.featureChoices && typeof input.featureChoices === "object" ? input.featureChoices : {},
     levelChoices: input.levelChoices && typeof input.levelChoices === "object" ? input.levelChoices : {},
@@ -327,6 +348,33 @@ export function grantedToolkits(character, rules) {
   return result;
 }
 
+function progressionOptions(source, character, rules) {
+  if (!source?.optionsSource) return source?.options || [];
+  if (source.optionsSource.type.startsWith("proficient-")) {
+    const skills = (rules.proficiencies?.skills || []).filter((entry) => effectiveSkillDegree(character, rules, entry.id) > 0).map((entry) => ({ id: `skill:${entry.id}`, name: entry.name, ...(source.dynamicFollowUp ? { followUps: [source.dynamicFollowUp] } : {}) }));
+    const toolkitNames = [...new Set([...grantedToolkits(character, rules).map((entry) => entry.name), ...(character.proficiencies?.toolkits || []).filter((entry) => Number(entry.degree) > 0).map((entry) => entry.name)].filter(Boolean))];
+    const tools = toolkitNames.map((name) => ({ id: `tool:${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, name }));
+    if (source.optionsSource.type === "proficient-skills") return skills;
+    if (source.optionsSource.type === "proficient-tools") return tools;
+    return [...skills, ...tools];
+  }
+  if (source.optionsSource.type !== "known-jutsu") return [];
+  const rankOrder = ["E-Rank", "D-Rank", "C-Rank", "B-Rank", "A-Rank", "S-Rank"];
+  return (character.jutsu || []).map((known) => rules.jutsu?.find((entry) => entry.id === known.id) || known).filter((entry) => {
+    if (source.optionsSource.rank && entry.rank !== source.optionsSource.rank) return false;
+    if (source.optionsSource.maxRank && rankOrder.indexOf(entry.rank) > rankOrder.indexOf(source.optionsSource.maxRank)) return false;
+    const keywords = String(entry.keywords || "").split(/[,;/]/).map((value) => value.trim().toLowerCase()).filter(Boolean);
+    if (source.optionsSource.keyword && entry.keywords && !keywords.includes(source.optionsSource.keyword.toLowerCase())) return false;
+    if (source.optionsSource.excludeKeyword && keywords.includes(source.optionsSource.excludeKeyword.toLowerCase())) return false;
+    return true;
+  }).map((entry) => ({ id: entry.id, name: entry.name }));
+}
+
+function progressionSelectionCount(selection, character) {
+  if (!selection.dynamicCountAbility) return Number(selection.count) || 0;
+  return Math.max(Number(selection.minimum) || 0, abilityModifier(character.abilities?.[selection.dynamicCountAbility]));
+}
+
 export function validateCharacter(character, rules) {
   const problems = [];
   if (!character.name.trim()) problems.push("Give the character a name.");
@@ -358,6 +406,55 @@ export function validateCharacter(character, rules) {
   if (character.subclassId) {
     const subclass = rules.subclasses.find((entry) => entry.id === character.subclassId);
     if (!subclass || subclass.className !== selectedClass?.name) problems.push("The chosen subclass does not belong to the chosen class.");
+  }
+  if (selectedClass?.subclassLevel && Number(character.level) >= Number(selectedClass.subclassLevel) && !character.subclassId) {
+    problems.push(`Choose a ${selectedClass.name} subclass gained at level ${selectedClass.subclassLevel}.`);
+  }
+  for (const group of selectedClass?.progressionChoices || []) {
+    const allowed = new Map(progressionOptions(group, character, rules).map((entry) => [entry.id, entry]));
+    const used = new Set();
+    const usedFollowUps = new Map();
+    for (const selection of group.selections || []) {
+      if (Number(selection.level) > Number(character.level)) continue;
+      const key = `progression:${group.id}:${selection.level}`;
+      const raw = character.featureChoices?.[key];
+      const chosen = (Array.isArray(raw) ? raw : raw ? [raw] : []).filter(Boolean);
+      const slotBudget = Number(selection.slotBudget) || 0;
+      const spentSlots = chosen.reduce((total, id) => total + Number(allowed.get(id)?.slotCost || 1), 0);
+      const requiredCount = progressionSelectionCount(selection, character);
+      if (slotBudget ? (new Set(chosen).size !== chosen.length || spentSlots > slotBudget) : (chosen.length !== requiredCount || new Set(chosen).size !== requiredCount)) {
+        if (slotBudget) problems.push(`${group.label} selections must fit within ${slotBudget} slots; Major choices cost two slots.`);
+        else problems.push(`Choose ${requiredCount} ${group.label}${requiredCount === 1 ? "" : "s"} for level ${selection.level}.`);
+        continue;
+      }
+      if (chosen.some((id) => !allowed.has(id))) problems.push(`${group.label} contains an option that is not available to ${selectedClass.name}.`);
+      chosen.forEach((id, choiceIndex) => {
+        const selectedOption = allowed.get(id);
+        if (!selectedOption) return;
+        if (used.has(id) && !selectedOption.allowRepeat) problems.push(`${selectedOption.name} cannot be selected more than once.`);
+        used.add(id);
+        if (selectedOption.minLevel && Number(selection.level) < Number(selectedOption.minLevel)) problems.push(`${selectedOption.name} requires level ${selectedOption.minLevel}.`);
+        const subclass = rules.subclasses.find((entry) => entry.id === character.subclassId);
+        if (selectedOption.requiresSubclass && subclass?.name !== selectedOption.requiresSubclass) problems.push(`${selectedOption.name} requires the ${selectedOption.requiresSubclass} subclass.`);
+        if (selectedOption.forbidsCurrentSubclass && subclass?.name === selectedOption.name) problems.push(`${selectedOption.name} cannot be selected again for this feature.`);
+        for (const followUp of selectedOption.followUps || []) {
+          const detailKey = `progression-detail:${group.id}:${selection.level}:${choiceIndex}:${selectedOption.id}:${followUp.id}`;
+          const detailRaw = character.featureChoices?.[detailKey];
+          const values = (Array.isArray(detailRaw) ? detailRaw : detailRaw ? [detailRaw] : []).filter(Boolean);
+          if (values.length !== Number(followUp.count) || new Set(values).size !== Number(followUp.count)) {
+            problems.push(`Choose ${followUp.count} ${followUp.label}${Number(followUp.count) === 1 ? "" : "s"} for ${selectedOption.name}.`);
+            continue;
+          }
+          const followAllowed = new Set(progressionOptions(followUp, character, rules).map((entry) => entry.id));
+          if (values.some((value) => !followAllowed.has(value))) problems.push(`${selectedOption.name} contains an invalid ${followUp.label.toLowerCase()} choice.`);
+          const followKey = `${selectedOption.id}:${followUp.id}`;
+          const prior = usedFollowUps.get(followKey) || new Set();
+          if (values.some((value) => prior.has(value))) problems.push(`${selectedOption.name} must use different ${followUp.label.toLowerCase()} choices each time it is selected.`);
+          values.forEach((value) => prior.add(value));
+          usedFollowUps.set(followKey, prior);
+        }
+      });
+    }
   }
   for (const group of selectedClass?.startingEquipment || []) {
     if (!character.equipment?.startingChoices?.[group.id]) problems.push(`Choose starting equipment: ${group.choices.join(" or ")}.`);
@@ -411,17 +508,29 @@ export function validateCharacter(character, rules) {
     if (!Number.isFinite(score) || score < 1 || score > 30) problems.push(`${ability} must be between 1 and 30.`);
     if (score > 20 && !(Number(character.abilityIncreases?.manual?.[ability]) > 0)) problems.push(`${ability} is above the normal maximum of 20; record the exceptional source as an adjustment.`);
   }
+  if (character.abilityMethod === "pointBuy") {
+    const scores = ABILITIES.map((ability) => Number(character.baseAbilities[ability]));
+    if (scores.some((score) => !Object.hasOwn(ABILITY_POINT_COSTS, score))) problems.push("Point Buy scores must be whole numbers between 8 and 15.");
+    const spent = scores.reduce((total, score) => total + (ABILITY_POINT_COSTS[score] ?? ABILITY_POINT_BUDGET + 1), 0);
+    if (spent > ABILITY_POINT_BUDGET) problems.push(`Point Buy exceeds the ${ABILITY_POINT_BUDGET}-point Naruto 5e budget by ${spent - ABILITY_POINT_BUDGET}.`);
+  }
+  if (character.abilityMethod === "standardArray") {
+    const scores = ABILITIES.map((ability) => Number(character.baseAbilities[ability])).sort((a, b) => b - a);
+    if (scores.some((score, index) => score !== STANDARD_ARRAY[index])) problems.push(`Standard Array must use exactly ${STANDARD_ARRAY.join("/")}, one score per ability.`);
+  }
   for (const entry of character.jutsu) {
     if (Number(entry.level) > character.level) problems.push(`${entry.name} is assigned to a level above the character's current level.`);
   }
+  problems.push(...featValidationProblems(character, rules));
   return problems;
 }
 
-export function levelTimeline(character, rules) {
+export function levelTimeline(character, rules, maximumLevel = 20) {
   const selectedClass = rules.classes.find((entry) => entry.id === character.classId);
   const selectedSubclass = rules.subclasses.find((entry) => entry.id === character.subclassId);
   const selectedClan = rules.clans.find((entry) => entry.id === character.clanId);
-  return Array.from({ length: character.level }, (_, index) => {
+  const safeMaximum = Math.min(20, Math.max(Number(character.level) || 1, Number(maximumLevel) || 20));
+  return Array.from({ length: safeMaximum }, (_, index) => {
     const level = index + 1;
     return {
       level,
@@ -431,6 +540,10 @@ export function levelTimeline(character, rules) {
       clanFeatures: selectedClan?.featuresByLevel?.[level] || [],
       jutsu: character.jutsu.filter((entry) => Number(entry.level) === level),
       choices: character.levelChoices?.[level] || "",
+      attained: level <= Number(character.level),
+      progressionChoices: (selectedClass?.progressionChoices || []).flatMap((group) => (group.selections || [])
+        .filter((selection) => Number(selection.level) === level)
+        .map((selection) => ({ ...group, selection }))),
     };
   });
 }
